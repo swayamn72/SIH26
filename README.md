@@ -54,9 +54,9 @@ Nothing is ever computed randomly by an LLM. Every score, flag, and metric is ma
 
 ### Three-Tier Decision
 All processed statements are classified as:
-- 🔴 **CONFIRMED SUSPICIOUS** — fused score ≥ 75, at least one rule triggered
-- 🟡 **REVIEW REQUIRED** — ambiguous, ranked for human investigation
-- 🟢 **LIKELY LEGITIMATE** — fused score ≤ 25, low anomaly, high confidence
+- 🔴 **CONFIRMED SUSPICIOUS** — fused score ≥ 75, at least one rule triggered.
+- 🟡 **REVIEW REQUIRED** — ambiguous, ranked for human investigation.
+- 🟢 **LIKELY LEGITIMATE** — fused score ≤ 25, low anomaly, high confidence.
 
 ---
 
