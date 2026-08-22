@@ -60,6 +60,15 @@ All processed statements are classified as:
 
 ---
 
+## 📊 Methodology & Quantitative Validation
+
+For a rigorous, mathematical breakdown of our graph structures, class-imbalance handling, temporal windows, and confidence scoring, please see the **[METHODOLOGY.md](file:///Users/swayam.vernekar/Desktop/SIH-MuleGuard/METHODOLOGY.md)**.
+
+### Benchmark Results
+*(Benchmark results comparing MuleGuard's hybrid approach against rule-based and pure-ML baselines will be added here.)*
+
+---
+
 ## 🕵️‍♂️ Advanced Circular Flow Detection
 
 - Uses **Tarjan's SCC** to filter candidate cyclic regions
