@@ -1,0 +1,17 @@
+{
+  "template_id": "icici_savings_v1",
+  "description": "ICICI Bank savings account statement - standard format",
+  "match_headers": ["Date", "Description", "Chq/Ref No", "Debit", "Credit", "Balance"],
+  "match_threshold": 0.85,
+  "column_map": {
+    "Date": "txn_date",
+    "Description": "narration",
+    "Chq/Ref No": "reference_no",
+    "Debit": "debit_amount",
+    "Credit": "credit_amount",
+    "Balance": "balance_after"
+  },
+  "date_format": "%d/%m/%y",
+  "decimal_style": "comma_thousands",
+  "is_fallback": false
+}

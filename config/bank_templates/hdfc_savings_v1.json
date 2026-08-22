@@ -1,0 +1,18 @@
+{
+  "template_id": "hdfc_savings_v1",
+  "description": "HDFC Bank savings account statement - standard format",
+  "match_headers": ["Date", "Narration", "Chq./Ref.No.", "Value Dt", "Withdrawal Amt.", "Deposit Amt.", "Closing Balance"],
+  "match_threshold": 0.85,
+  "column_map": {
+    "Date": "txn_date",
+    "Narration": "narration",
+    "Chq./Ref.No.": "reference_no",
+    "Value Dt": "value_date",
+    "Withdrawal Amt.": "debit_amount",
+    "Deposit Amt.": "credit_amount",
+    "Closing Balance": "balance_after"
+  },
+  "date_format": "%d/%m/%y",
+  "decimal_style": "comma_thousands",
+  "is_fallback": false
+}

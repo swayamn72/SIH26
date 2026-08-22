@@ -1,0 +1,19 @@
+[
+  "account_age_days_observed",
+  "dormancy_breaks",
+  "first_week_activity_ratio",
+  "days_since_last_activity",
+  "net_retention_ratio",
+  "median_holding_time_hours",
+  "average_daily_balance",
+  "turnover_ratio",
+  "inflow_outflow_velocity",
+  "weekend_night_activity_ratio",
+  "near_threshold_ratio",
+  "round_number_ratio",
+  "benford_deviation_score",
+  "fan_in_score",
+  "fan_out_score",
+  "counterparty_concentration_hhi",
+  "name_consistency_flag"
+]

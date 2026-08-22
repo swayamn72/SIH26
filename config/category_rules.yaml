@@ -1,0 +1,225 @@
+# MuleGuard Local — Transaction categorization rules (deterministic regex/keyword)
+# User-editable. Changes take effect on next analysis.
+
+categories:
+  - name: 'salary'
+    match_any:
+      [
+        'salary',
+        'sal credit',
+        'payroll',
+        'salary credit',
+        'tecnimont',
+        'stipend',
+        'remuneration',
+      ]
+    direction: credit
+
+  - name: 'utility_bill'
+    match_any:
+      [
+        'electricity',
+        'recharge',
+        'broadband',
+        'dth',
+        'water bill',
+        'gas bill',
+        'airtel',
+        'jio',
+        'vi ',
+      ]
+    direction: debit
+
+  - name: 'peer_transfer'
+    match_any: ['upi', 'neft', 'imps', 'rtgs']
+    direction: any
+
+  - name: 'cash'
+    match_any:
+      ['atm', 'cash wdl', 'atw', 'cash withdrawal', 'cshdep', 'cash deposit']
+    direction: any
+
+  - name: 'interest'
+    match_any:
+      ['int credit', 'interest', 'interest credited', 'int.pd', 'intcr']
+    direction: credit
+
+  - name: 'charges'
+    match_any:
+      [
+        'charges',
+        'service charge',
+        'maintenance fee',
+        'penalty',
+        'sms charges',
+        'adcchg',
+        'atm card',
+      ]
+    direction: debit
+
+  - name: 'reversal'
+    match_any: ['reversal', 'rev', 'reversed', 'refund']
+    direction: any
+
+  - name: 'emi'
+    match_any: ['emi', 'loan repayment', 'auto debit']
+    direction: debit
+
+  - name: 'investment'
+    match_any:
+      [
+        'mutual fund',
+        'mf',
+        'stock',
+        'equity',
+        'sip',
+        'fixed deposit',
+        'fd',
+        'rd',
+        'zerodha',
+        'groww',
+        'upstox',
+        'fd premat',
+        'fd maturity',
+        'installment amount for rd',
+      ]
+    direction: any
+
+  - name: 'rent'
+    match_any: ['rent', 'lease', 'pg fee']
+    direction: debit
+
+  - name: 'tax'
+    match_any:
+      [
+        'tax',
+        'gst',
+        'cgst',
+        'sgst',
+        'igst',
+        'income tax',
+        'tds',
+        'traffic police',
+        'challan',
+      ]
+    direction: debit
+
+  - name: 'shopping'
+    match_any:
+      [
+        'amazon',
+        'flipkart',
+        'myntra',
+        'swiggy',
+        'zomato',
+        'blinkit',
+        'zepto',
+        'meesho',
+        'dmart',
+        'bigtree',
+        'bookmyshow',
+        'dominos',
+        'mcdonald',
+        'kfc',
+        'ecom',
+        'pcd',
+      ]
+    direction: debit
+
+  - name: 'travel'
+    match_any:
+      [
+        'flight',
+        'train',
+        'irctc',
+        'makemytrip',
+        'booking',
+        'uber',
+        'ola',
+        'redbus',
+        'goibibo',
+        'indigo',
+      ]
+    direction: debit
+
+  - name: 'education'
+    match_any:
+      [
+        'crack every test',
+        'ims learning',
+        'cat test',
+        'coursera',
+        'udemy',
+        'college',
+        'university',
+        'tuition',
+        'exam fee',
+      ]
+    direction: debit
+
+## Channel patterns (Section 8.1)
+channels:
+  UPI:
+    patterns:
+      - 'UPI/'
+      - "\\w[\\w.\\-]+@\\w+"
+  NEFT:
+    patterns:
+      - 'NEFT'
+      - 'NEFT-'
+      - 'NEFTINW'
+  RTGS:
+    patterns:
+      - 'RTGS'
+      - 'RTGS-'
+  IMPS:
+    patterns:
+      - 'IMPS'
+      - 'IMPS-'
+  ATM:
+    patterns:
+      - "\\bATM\\b"
+      - 'CASH WDL'
+      - 'ATW'
+      - 'ADCCHG'
+  POS:
+    patterns:
+      - "\\bPOS\\b"
+      - 'POS '
+      - 'SWIPE'
+  ECOM:
+    patterns:
+      - 'ECOM:'
+      - 'PCD/'
+  SWEEP:
+    patterns:
+      - 'SWEEP TRANSFER'
+      - 'SWEEP TRF'
+  FD_RD:
+    patterns:
+      - 'FD PREMAT'
+      - 'FD MATURITY'
+      - 'INSTALLMENT AMOUNT FOR RD'
+  CHEQUE:
+    patterns:
+      - 'CHQ'
+      - 'CHEQUE'
+      - "CH\\.?\\s*NO"
+  INTEREST:
+    patterns:
+      - "INT\\s+CREDIT"
+      - 'INTEREST'
+      - "INT\\.PD"
+      - 'INTCR'
+  CHARGES:
+    patterns:
+      - 'CHARGES'
+      - 'SERVICE CHARGE'
+      - 'MAINTENANCE'
+      - 'SMS CHARGES'
+      - 'ADCCHG'
+  INTERNAL_TRANSFER:
+    patterns:
+      - 'OWN A/C'
+      - 'SELF TRANSFER'
+      - 'TRANSFER TO OWN'

@@ -1,0 +1,7 @@
+Account {account_id} observed over {observed_period} ({transaction_count} transactions, extracted with {extraction_confidence:.1%} confidence) has been classified as {tier} with a fused score of {fused_score:.1f}.
+
+The top triggered rules are: {rule_list}.
+
+{cycle_description}
+
+This is a decision-support output, not a final determination, and requires human review before any account action.

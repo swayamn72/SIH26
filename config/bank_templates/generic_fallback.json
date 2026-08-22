@@ -1,0 +1,10 @@
+{
+  "template_id": "generic_fallback",
+  "description": "Generic fallback template — used when no known bank template matches. Column mapping uses heuristic scoring.",
+  "match_headers": [],
+  "match_threshold": 0.0,
+  "column_map": {},
+  "date_format": "%d/%m/%y",
+  "decimal_style": "comma_thousands",
+  "is_fallback": true
+}

@@ -1,0 +1,17 @@
+{
+  "n_accounts_total": 50000,
+  "n_train": 37500,
+  "n_test": 12500,
+  "positive_rate": 0.12714,
+  "pr_auc": 0.5721400181914326,
+  "brier_score_raw": 0.12999537869782035,
+  "brier_score_calibrated": 0.08331786935045533,
+  "brier_baseline_predict_base_rate": 0.11098039182222222,
+  "recall_at_precision_0.5": 0.5431088735053493,
+  "score_threshold_at_precision_0.5": 0.665510844657776,
+  "recall_at_precision_0.7": 0.2938955317809943,
+  "score_threshold_at_precision_0.7": 0.8297610964717586,
+  "recall_at_precision_0.9": 0.1724354940213971,
+  "score_threshold_at_precision_0.9": 0.9085510508059977,
+  "used_lightgbm": true
+}

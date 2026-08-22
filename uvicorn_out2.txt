@@ -1,0 +1,7 @@
+INFO:     127.0.0.1:63798 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63823 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63848 - "GET /api/config/thresholds HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56316 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56316 - "GET /assets/index-D0dLmeHF.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64238 - "GET /assets/index-DTxZXfR2.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56316 - "GET /favicon.ico HTTP/1.1" 404 Not Found
