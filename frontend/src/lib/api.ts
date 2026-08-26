@@ -245,6 +245,43 @@ export type TransferDataset = {
   payment_formats: string[];
 };
 
+export type IntelSource = {
+  key: string;
+  kind: "statements" | "ledger";
+  label: string;
+  description: string;
+  bank_count: number;
+  transfer_count: number;
+  is_live: boolean;
+  has_labels: boolean;
+  dataset_id: number | null;
+};
+
+export type LedgerCoverage = {
+  statements_total: number;
+  statements_included: number;
+  statements_skipped: number;
+  transactions_used: number;
+  transfer_rows: number;
+  counterparty_attributed: number;
+  counterparty_unattributed: number;
+  attribution_rate: number;
+  mirrored_transfers_deduplicated: number;
+  attribution_signals: Record<string, number>;
+  subject_banks: { bank_code: string; bank_name: string }[];
+  direct_banks: string[];
+  per_statement: {
+    statement_id: number;
+    filename: string | null;
+    bank_code: string;
+    bank_name: string;
+    bank_signal: string;
+    transactions: number;
+    attributed: number;
+    skipped: boolean;
+  }[];
+};
+
 export type RiskComponent = {
   name: string;
   value: number;
@@ -317,12 +354,15 @@ export type BankProfile = {
   cycle_ids: string[];
   cycle_exposure: number;
   cycle_transfers: number;
+  evidence_basis: "direct" | "partial";
+  is_subject_bank: boolean;
+  has_currency_data: boolean;
   labelled_laundering_transfers: number;
   labelled_laundering_share: number;
 };
 
 export type BankListResponse = {
-  dataset: TransferDataset;
+  dataset: TransferDataset | null;
   summary: {
     bank_count: number;
     transfer_count: number;
@@ -333,6 +373,11 @@ export type BankListResponse = {
     avg_risk_score: number;
     top_bank: string | null;
     has_labels: boolean;
+    source?: string;
+    source_kind?: "statements" | "ledger";
+    direct_bank_count?: number;
+    partial_bank_count?: number;
+    coverage?: LedgerCoverage;
     label_evaluation?: {
       banks_touching_labelled_transfers: number;
       banks_scored_high: number;
@@ -346,7 +391,9 @@ export type BankListResponse = {
 };
 
 export type BankDetailResponse = {
-  dataset: TransferDataset;
+  source: string;
+  dataset: TransferDataset | null;
+  coverage: LedgerCoverage | null;
   profile: BankProfile;
   neighbourhood: {
     from_bank: string;
@@ -447,6 +494,8 @@ export const api = {
   getWhyFlagged: (id: number) => request<WhyFlagged>(`/statements/${id}/why-flagged`),
 
   // ---------------------------------------------------- bank intelligence
+  listIntelSources: () => request<IntelSource[]>("/intel/sources"),
+
   listTransferDatasets: () => request<TransferDataset[]>("/intel/datasets"),
 
   uploadTransferDataset: (file: File) => {
@@ -459,32 +508,32 @@ export const api = {
     request<{ status: string }>(`/intel/datasets/${id}`, { method: "DELETE" }),
 
   getBanks: (params: {
-    datasetId?: number;
+    source?: string;
     search?: string;
     tier?: string;
+    evidence?: string;
     sort?: string;
     order?: string;
     limit?: number;
   } = {}) => {
     const q = new URLSearchParams();
-    if (params.datasetId != null) q.set("dataset_id", String(params.datasetId));
+    q.set("source", params.source || "statements");
     if (params.search) q.set("search", params.search);
     if (params.tier) q.set("tier", params.tier);
+    if (params.evidence) q.set("evidence", params.evidence);
     if (params.sort) q.set("sort", params.sort);
     if (params.order) q.set("order", params.order);
     q.set("limit", String(params.limit ?? 200));
     return request<BankListResponse>(`/intel/banks?${q.toString()}`);
   },
 
-  getBankProfile: (bankCode: string, datasetId?: number) => {
-    const q = datasetId != null ? `?dataset_id=${datasetId}` : "";
-    return request<BankDetailResponse>(`/intel/banks/${encodeURIComponent(bankCode)}${q}`);
-  },
+  getBankProfile: (bankCode: string, source = "statements") =>
+    request<BankDetailResponse>(
+      `/intel/banks/${encodeURIComponent(bankCode)}?source=${encodeURIComponent(source)}`,
+    ),
 
-  getBankGraph: (datasetId?: number) => {
-    const q = datasetId != null ? `?dataset_id=${datasetId}` : "";
-    return request<BankGraphResponse>(`/intel/graph${q}`);
-  },
+  getBankGraph: (source = "statements") =>
+    request<BankGraphResponse>(`/intel/graph?source=${encodeURIComponent(source)}`),
 
   getNarrative: async (id: number) => {
     const res = await request<{ statement_id: number; narrative: string; source: string }>(`/statements/${id}/narrative`);

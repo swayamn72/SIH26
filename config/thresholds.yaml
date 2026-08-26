@@ -64,6 +64,8 @@ bank_intelligence:
     lower_pct: 0.9
   - threshold: 50000
     lower_pct: 0.9
+  wire_formats: [wire, rtgs, neft]
+  high_risk_formats: [wire, rtgs, cash, crypto, bitcoin, reinvestment]
   absolute_references:
     cycle_exposure: 0.1
     structuring_share: 0.15

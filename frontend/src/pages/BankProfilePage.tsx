@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Landmark,
   ArrowLeft,
@@ -103,6 +103,8 @@ function ComponentRow({ component }: { component: RiskComponent }) {
 export function BankProfilePage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const source = searchParams.get("source") || "statements";
 
   const [data, setData] = useState<BankDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,11 +113,11 @@ export function BankProfilePage() {
     if (!code) return;
     setLoading(true);
     api
-      .getBankProfile(code)
+      .getBankProfile(code, source)
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [code]);
+  }, [code, source]);
 
   if (loading) return <LoadingPanel label="Loading bank profile" />;
 
@@ -145,6 +147,7 @@ export function BankProfilePage() {
 
   const p = data.profile;
   const tone = TIER_TONE[p.risk_tier] || "neutral";
+  const cov = data.coverage;
   const outgoing = data.neighbourhood.filter((n) => n.direction === "outgoing");
   const incoming = data.neighbourhood.filter((n) => n.direction === "incoming");
   const maxFormatShare = Math.max(...p.format_mix.map((f) => f.share), 0.0001);
@@ -155,8 +158,17 @@ export function BankProfilePage() {
         eyebrow={
           <>
             <Badge tone="info" dot>Institution intelligence</Badge>
-            <Badge tone="neutral" mono>
-              LEDGER #{data.dataset.id}
+            {data.dataset ? (
+              <Badge tone="neutral" mono>
+                LEDGER #{data.dataset.id}
+              </Badge>
+            ) : (
+              <Badge tone="success" dot>
+                live from statements
+              </Badge>
+            )}
+            <Badge tone={p.evidence_basis === "direct" ? "info" : "warning"}>
+              {p.evidence_basis === "direct" ? "direct evidence" : "partial evidence"}
             </Badge>
             <Badge tone={tone} dot>
               {p.risk_tier} RISK · {p.risk_score.toFixed(0)}
@@ -164,7 +176,11 @@ export function BankProfilePage() {
           </>
         }
         title={p.display_name}
-        description="Behavioural profile assembled from this institution's own traffic in the ledger — every number below is a count or a ratio, not a prediction."
+        description={
+          data.dataset
+            ? "Behavioural profile assembled from this institution's own traffic in the ledger — every number below is a count or a ratio, not a prediction."
+            : "Behavioural profile assembled from this institution's traffic across the statement corpus — every number below is a count or a ratio, not a prediction."
+        }
         meta={
           <>
             <MetaItem label="Transfers" value={grouped.format(p.transfer_count)} icon={Activity} />
@@ -179,13 +195,33 @@ export function BankProfilePage() {
           </>
         }
         actions={
-          <Button icon={ArrowLeft} onClick={() => navigate("/banks")}>
+          <Button
+            icon={ArrowLeft}
+            onClick={() => navigate(`/banks?source=${encodeURIComponent(source)}`)}
+          >
             All institutions
           </Button>
         }
       />
 
       <div className="mx-auto max-w-[1400px] space-y-5 p-4 sm:p-6">
+        {p.evidence_basis === "partial" && (
+          <Callout tone="warning" icon={Info} title="Partial evidence — read the volumes with care">
+            No statement issued by this institution is held. Everything below is what other banks'
+            statements revealed about it, so its totals are a fragment of its real activity, not the
+            institution's book.
+          </Callout>
+        )}
+
+        {cov && p.evidence_basis === "direct" && (
+          <Callout tone="info" icon={Info} title="Derived from the statement corpus">
+            Assembled from {cov.statements_included} analysed statement(s);{" "}
+            {percent(cov.attribution_rate, 0)} of counterparties across the corpus could be
+            attributed to a named institution. Circular flows below are only visible because several
+            statements are held together.
+          </Callout>
+        )}
+
         {/* The profile card */}
         <Card accent={p.risk_tier === "HIGH" ? "danger" : p.risk_tier === "MEDIUM" ? "warning" : undefined}>
           <CardHeader
@@ -237,7 +273,7 @@ export function BankProfilePage() {
               label="Wire usage"
               value={percent(p.wire_share, 0)}
               tone={p.wire_share >= 0.5 ? "warning" : "neutral"}
-              hint={`high-risk instruments ${percent(p.high_risk_format_share, 0)}`}
+              hint={`RTGS/NEFT rails · high-risk ${percent(p.high_risk_format_share, 0)}`}
               icon={Gauge}
             />
             <StatTile
@@ -305,7 +341,8 @@ export function BankProfilePage() {
               </div>
             </Card>
 
-            {/* Corridors */}
+            {/* Corridors — only when the source carries currencies */}
+            {p.has_currency_data && (
             <Card>
               <CardHeader
                 title="Settlement corridors"
@@ -334,6 +371,7 @@ export function BankProfilePage() {
                 </TBody>
               </Table>
             </Card>
+            )}
 
             {/* Activity */}
             <Card>

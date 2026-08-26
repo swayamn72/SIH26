@@ -24,6 +24,12 @@ class Statement(SQLModel, table=True):
     account_number_hashed: Optional[str] = Field(default=None, max_length=128)
     raw_headers: Optional[list[str]] = Field(default=None, sa_column=Column(JSON))
     raw_rows: Optional[list[list[str]]] = Field(default=None, sa_column=Column(JSON))
+    # The lines above the transaction header — bank name, holder, the account's own
+    # IFSC. The extractor discards them, so they are captured separately at upload.
+    raw_preamble: Optional[list[str]] = Field(default=None, sa_column=Column(JSON))
+    bank_code: Optional[str] = Field(default=None, max_length=16, index=True)
+    bank_name: Optional[str] = Field(default=None, max_length=255)
+    bank_code_source: Optional[str] = Field(default=None, max_length=32)
 
 
 class Counterparty(SQLModel, table=True):

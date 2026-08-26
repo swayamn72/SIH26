@@ -26,7 +26,9 @@ from app.db.models import (
     TransferDataset,
 )
 from app.db.session import get_session
+from app.institutions.bank_identity import UNATTRIBUTED
 from app.institutions.bank_profile import build_bank_intelligence
+from app.institutions.statement_ledger import build_statement_ledger, ledger_fingerprint
 from app.institutions.transfer_ingest import read_transfer_rows
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,49 @@ if data_dir_env:
 else:
     UPLOAD_DIR = Path(__file__).parents[3] / "data" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# Profiles for the statement corpus are recomputed on read so newly added
+# statements appear immediately, and memoised on a corpus fingerprint so the
+# three requests behind one page load do the work once.
+_STATEMENT_CACHE: dict[str, Any] = {"fingerprint": None, "intel": None, "coverage": None}
+
+STATEMENT_SOURCE = "statements"
+
+
+def statement_intelligence(db: Session, force: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
+    """(intel, coverage) built from every analysed statement in the database."""
+    fingerprint = ledger_fingerprint(db)
+    if (
+        not force
+        and _STATEMENT_CACHE["fingerprint"] == fingerprint
+        and _STATEMENT_CACHE["intel"] is not None
+    ):
+        return _STATEMENT_CACHE["intel"], _STATEMENT_CACHE["coverage"]
+
+    ledger = build_statement_ledger(db)
+    intel = build_bank_intelligence(
+        ledger["rows"],
+        skip_banks={UNATTRIBUTED},
+        direct_banks=ledger["direct_banks"],
+        display_names=ledger["display_names"],
+    )
+    _STATEMENT_CACHE.update(
+        {"fingerprint": fingerprint, "intel": intel, "coverage": ledger["coverage"]}
+    )
+    return intel, ledger["coverage"]
+
+
+class SourceOut(BaseModel):
+    key: str
+    kind: str
+    label: str
+    description: str
+    bank_count: int = 0
+    transfer_count: int = 0
+    is_live: bool = False
+    has_labels: bool = False
+    dataset_id: Optional[int] = None
 
 
 class DatasetOut(BaseModel):
@@ -63,7 +108,7 @@ class DatasetOut(BaseModel):
 
 
 class BankListOut(BaseModel):
-    dataset: DatasetOut
+    dataset: Optional[DatasetOut] = None
     summary: dict[str, Any] = {}
     banks: list[dict[str, Any]] = []
     total: int = 0
@@ -97,6 +142,56 @@ def _dataset_out(ds: TransferDataset) -> DatasetOut:
     )
 
 
+def _load_source(
+    db: Session, source: str, dataset_id: Optional[int] = None
+) -> tuple[list[dict[str, Any]], dict[str, Any], Optional[DatasetOut]]:
+    """Resolve a source key to (bank profiles, summary, dataset-or-None).
+
+    'statements' rebuilds from the live corpus; 'ledger:<id>' reads the stored
+    profiles for an uploaded ledger. dataset_id is honoured for older callers.
+    """
+    if dataset_id is not None:
+        source = f"ledger:{dataset_id}"
+
+    if source.startswith("ledger:"):
+        try:
+            ds_id = int(source.split(":", 1)[1])
+        except (IndexError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Malformed source '{source}'")
+        dataset = _load_dataset_or_404(db, ds_id)
+        records = db.exec(
+            select(BankProfileRecord).where(BankProfileRecord.dataset_id == dataset.id)
+        ).all()
+        banks = [r.json_blob for r in records if r.json_blob]
+        summary = _dataset_summary(db, dataset, records)
+        summary["source"] = source
+        summary["source_kind"] = "ledger"
+        return banks, summary, _dataset_out(dataset)
+
+    if source != STATEMENT_SOURCE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown source '{source}'. Use 'statements' or 'ledger:<id>'.",
+        )
+
+    intel, coverage = statement_intelligence(db)
+    summary = dict(intel.get("summary", {}))
+    summary["source"] = STATEMENT_SOURCE
+    summary["source_kind"] = "statements"
+    summary["coverage"] = coverage
+    summary["tier_counts"] = {
+        tier: sum(1 for b in intel["banks"] if b.get("risk_tier") == tier)
+        for tier in ("HIGH", "MEDIUM", "LOW")
+    }
+    summary["avg_risk_score"] = (
+        round(sum(b["risk_score"] for b in intel["banks"]) / len(intel["banks"]), 1)
+        if intel["banks"]
+        else 0.0
+    )
+    summary["cycle_count"] = len(intel.get("cycles", []))
+    return list(intel["banks"]), summary, None
+
+
 def _load_dataset_or_404(db: Session, dataset_id: int) -> TransferDataset:
     ds = db.get(TransferDataset, dataset_id)
     if ds is None:
@@ -112,6 +207,45 @@ def _resolve_dataset(db: Session, dataset_id: Optional[int]) -> TransferDataset:
     if ds is None:
         raise HTTPException(status_code=404, detail="No transfer dataset has been ingested yet")
     return ds
+
+
+@router.get("/sources", response_model=list[SourceOut])
+def list_sources(db: Session = Depends(get_session)):
+    """Where institution profiles can be built from, live corpus first."""
+    intel, coverage = statement_intelligence(db)
+    summary = intel.get("summary", {})
+
+    sources = [
+        SourceOut(
+            key=STATEMENT_SOURCE,
+            kind="statements",
+            label="Statement corpus (live)",
+            description=(
+                f"{coverage['statements_included']} analysed statement(s), "
+                f"{coverage['transactions_used']} transactions, "
+                f"{coverage['attribution_rate'] * 100:.0f}% of counterparties attributed to a bank"
+            ),
+            bank_count=summary.get("bank_count", 0),
+            transfer_count=summary.get("transfer_count", 0),
+            is_live=True,
+        )
+    ]
+
+    for ds in db.exec(select(TransferDataset).order_by(TransferDataset.upload_ts.desc())).all():
+        sources.append(
+            SourceOut(
+                key=f"ledger:{ds.id}",
+                kind="ledger",
+                label=f"Ledger #{ds.id} · {ds.original_filename or 'transfer ledger'}",
+                description=f"{ds.row_count} transfers across {ds.bank_count} institutions",
+                bank_count=ds.bank_count,
+                transfer_count=ds.row_count,
+                has_labels=ds.has_labels,
+                dataset_id=ds.id,
+            )
+        )
+
+    return sources
 
 
 @router.get("/datasets", response_model=list[DatasetOut])
@@ -239,21 +373,22 @@ def _parse_iso(value: Optional[str]):
 
 @router.get("/banks", response_model=BankListOut)
 def list_banks(
-    dataset_id: Optional[int] = Query(None),
+    source: str = Query(STATEMENT_SOURCE, description="'statements' (live) or 'ledger:<id>'"),
+    dataset_id: Optional[int] = Query(None, description="Legacy alias for source='ledger:<id>'"),
     search: Optional[str] = Query(None),
     tier: Optional[str] = Query(None, description="HIGH | MEDIUM | LOW"),
+    evidence: Optional[str] = Query(None, description="direct | partial"),
     sort: str = Query("risk_score", description="risk_score|transfer_count|total_received|total_sent|connected_banks|avg_transfer|bank_code"),
     order: str = Query("desc"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_session),
 ):
-    dataset = _resolve_dataset(db, dataset_id)
-    records = db.exec(
-        select(BankProfileRecord).where(BankProfileRecord.dataset_id == dataset.id)
-    ).all()
+    banks, summary, dataset = _load_source(db, source, dataset_id)
 
-    banks = [r.json_blob for r in records if r.json_blob]
+    if evidence:
+        wanted_evidence = evidence.strip().lower()
+        banks = [b for b in banks if b.get("evidence_basis") == wanted_evidence]
 
     if search:
         needle = search.strip().lower()
@@ -280,8 +415,7 @@ def list_banks(
     total = len(banks)
     page = banks[offset : offset + limit]
 
-    summary = _dataset_summary(db, dataset, records)
-    return BankListOut(dataset=_dataset_out(dataset), summary=summary, banks=page, total=total)
+    return BankListOut(dataset=dataset, summary=summary, banks=page, total=total)
 
 
 def _dataset_summary(
@@ -330,32 +464,28 @@ def _dataset_summary(
 @router.get("/banks/{bank_code}")
 def get_bank_profile(
     bank_code: str,
+    source: str = Query(STATEMENT_SOURCE),
     dataset_id: Optional[int] = Query(None),
     db: Session = Depends(get_session),
 ):
-    dataset = _resolve_dataset(db, dataset_id)
-    record = db.exec(
-        select(BankProfileRecord)
-        .where(BankProfileRecord.dataset_id == dataset.id)
-        .where(BankProfileRecord.bank_code == bank_code)
-    ).first()
-    if record is None or not record.json_blob:
-        raise HTTPException(
-            status_code=404, detail=f"No profile for {bank_code} in dataset {dataset.id}"
-        )
+    """One institution's profile, its immediate network and the loops it sits on."""
+    if dataset_id is not None:
+        source = f"ledger:{dataset_id}"
 
-    edges = db.exec(
-        select(BankEdge)
-        .where(BankEdge.dataset_id == dataset.id)
-        .where((BankEdge.from_bank == bank_code) | (BankEdge.to_bank == bank_code))
-    ).all()
-
-    cycles = [c for c in (dataset.flow_cycles or []) if bank_code in (c.get("banks") or [])]
-
-    return {
-        "dataset": _dataset_out(dataset),
-        "profile": record.json_blob,
-        "neighbourhood": [
+    if source.startswith("ledger:"):
+        ds_id = int(source.split(":", 1)[1])
+        dataset = _load_dataset_or_404(db, ds_id)
+        record = db.exec(
+            select(BankProfileRecord)
+            .where(BankProfileRecord.dataset_id == dataset.id)
+            .where(BankProfileRecord.bank_code == bank_code)
+        ).first()
+        if record is None or not record.json_blob:
+            raise HTTPException(
+                status_code=404, detail=f"No profile for {bank_code} in ledger {dataset.id}"
+            )
+        profile = record.json_blob
+        edges = [
             {
                 "from_bank": e.from_bank,
                 "to_bank": e.to_bank,
@@ -363,48 +493,85 @@ def get_bank_profile(
                 "total_amount": e.total_amount,
                 "direction": "outgoing" if e.from_bank == bank_code else "incoming",
             }
-            for e in sorted(edges, key=lambda e: -e.total_amount)[:40]
-        ],
-        "cycles": cycles,
+            for e in db.exec(
+                select(BankEdge)
+                .where(BankEdge.dataset_id == dataset.id)
+                .where((BankEdge.from_bank == bank_code) | (BankEdge.to_bank == bank_code))
+            ).all()
+        ]
+        cycles = [
+            c for c in (dataset.flow_cycles or []) if bank_code in (c.get("banks") or [])
+        ]
+        return {
+            "source": source,
+            "dataset": _dataset_out(dataset),
+            "coverage": None,
+            "profile": profile,
+            "neighbourhood": sorted(edges, key=lambda e: -e["total_amount"])[:40],
+            "cycles": cycles,
+        }
+
+    intel, coverage = statement_intelligence(db)
+    profile = next((b for b in intel["banks"] if b["bank_code"] == bank_code), None)
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{bank_code} does not appear in the current statement corpus",
+        )
+
+    edges = [
+        {
+            "from_bank": e["from_bank"],
+            "to_bank": e["to_bank"],
+            "transfer_count": int(e["transfer_count"]),
+            "total_amount": round(float(e["total_amount"]), 2),
+            "direction": "outgoing" if e["from_bank"] == bank_code else "incoming",
+        }
+        for e in intel["edges"]
+        if bank_code in (e["from_bank"], e["to_bank"])
+        and UNATTRIBUTED not in (e["from_bank"], e["to_bank"])
+    ]
+
+    return {
+        "source": STATEMENT_SOURCE,
+        "dataset": None,
+        "coverage": coverage,
+        "profile": profile,
+        "neighbourhood": sorted(edges, key=lambda e: -e["total_amount"])[:40],
+        "cycles": [c for c in intel["cycles"] if bank_code in (c.get("banks") or [])],
     }
 
 
 @router.get("/graph", response_model=BankGraphOut)
 def get_bank_graph(
+    source: str = Query(STATEMENT_SOURCE),
     dataset_id: Optional[int] = Query(None),
     top_banks: int = Query(60, ge=2, le=300, description="Keep the N banks by value moved"),
     db: Session = Depends(get_session),
 ):
     """Bank-to-bank network, trimmed to the busiest institutions so it stays readable."""
-    dataset = _resolve_dataset(db, dataset_id)
-    records = db.exec(
-        select(BankProfileRecord).where(BankProfileRecord.dataset_id == dataset.id)
-    ).all()
-    blobs = [r.json_blob for r in records if r.json_blob]
-    blobs.sort(key=lambda b: -(b.get("total_sent", 0) + b.get("total_received", 0)))
-    keep = {b["bank_code"] for b in blobs[:top_banks]}
+    banks, _summary, dataset = _load_source(db, source, dataset_id)
 
-    edges = db.exec(select(BankEdge).where(BankEdge.dataset_id == dataset.id)).all()
+    banks = sorted(banks, key=lambda b: -(b.get("total_sent", 0) + b.get("total_received", 0)))
+    keep = {b["bank_code"] for b in banks[:top_banks]}
+
     nodes = [
         {
             "id": b["bank_code"],
-            "label": b["bank_code"].replace("BANK_", "Bank "),
+            "label": b.get("display_name") or b["bank_code"],
             "flow": round(b.get("total_sent", 0) + b.get("total_received", 0), 2),
             "risk_score": b.get("risk_score", 0),
             "risk_tier": b.get("risk_tier", "LOW"),
             "transfer_count": b.get("transfer_count", 0),
             "connected_banks": b.get("connected_banks", 0),
+            "evidence_basis": b.get("evidence_basis", "direct"),
         }
-        for b in blobs
+        for b in banks
         if b["bank_code"] in keep
     ]
 
-    cycles = dataset.flow_cycles or []
-
-    return BankGraphOut(
-        dataset_id=dataset.id or 0,
-        nodes=nodes,
-        edges=[
+    if dataset is not None:
+        raw_edges = [
             {
                 "source": e.from_bank,
                 "target": e.to_bank,
@@ -413,9 +580,29 @@ def get_bank_graph(
                 "row_id": f"{e.from_bank}->{e.to_bank}",
                 "labelled_laundering_count": e.labelled_laundering_count,
             }
-            for e in edges
-            if e.from_bank in keep and e.to_bank in keep
-        ],
+            for e in db.exec(select(BankEdge).where(BankEdge.dataset_id == dataset.id)).all()
+        ]
+        cycles = (db.get(TransferDataset, dataset.id).flow_cycles) or []
+    else:
+        intel, _coverage = statement_intelligence(db)
+        raw_edges = [
+            {
+                "source": e["from_bank"],
+                "target": e["to_bank"],
+                "amount": round(float(e["total_amount"]), 2),
+                "transfer_count": int(e["transfer_count"]),
+                "row_id": f"{e['from_bank']}->{e['to_bank']}",
+                "labelled_laundering_count": int(e.get("labelled_laundering_count", 0)),
+            }
+            for e in intel["edges"]
+            if UNATTRIBUTED not in (e["from_bank"], e["to_bank"])
+        ]
+        cycles = intel["cycles"]
+
+    return BankGraphOut(
+        dataset_id=dataset.id if dataset else 0,
+        nodes=nodes,
+        edges=[e for e in raw_edges if e["source"] in keep and e["target"] in keep],
         cycles=cycles,
     )
 

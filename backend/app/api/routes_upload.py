@@ -16,6 +16,7 @@ from app.db.models import (
     Transaction,
 )
 from app.db.session import get_session
+from app.institutions.bank_identity import bank_name, extract_preamble, resolve_subject_bank
 from app.guardrails.ood_detector import (
     classify_ood_tier,
     compute_statement_likelihood,
@@ -225,6 +226,18 @@ async def upload_statements(
                 classified = classify_columns(detected_headers, sample_rows)
                 col_map = {idx: field for idx, (field, _) in classified.items()}
 
+            # Which bank issued this statement — needed by Bank Intelligence, and
+            # only recoverable from the preamble the extractor drops.
+            try:
+                preamble = extract_preamble(dest)
+                subject_bank, bank_signal = resolve_subject_bank(
+                    preamble,
+                    template_id=(matched_template or {}).get("template_id"),
+                    filename=file.filename,
+                )
+            except Exception:
+                preamble, subject_bank, bank_signal = [], "UNATTRIBUTED", "unresolved"
+
             statement = Statement(
                 filename_hash=file_hash,
                 original_filename=file.filename,
@@ -233,6 +246,10 @@ async def upload_statements(
                 status="uploaded",
                 raw_headers=detected_headers,
                 raw_rows=data_rows[:5000] if len(data_rows) > 5000 else data_rows,
+                raw_preamble=preamble,
+                bank_code=subject_bank,
+                bank_name=bank_name(subject_bank),
+                bank_code_source=bank_signal,
             )
             db.add(statement)
             db.commit()

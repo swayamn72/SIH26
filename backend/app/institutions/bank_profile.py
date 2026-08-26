@@ -51,7 +51,14 @@ COMPONENT_DESCRIPTIONS = {
 }
 
 # Instruments that carry the least friction and the most laundering exposure.
-HIGH_RISK_FORMATS = {"wire", "cash", "crypto", "bitcoin", "reinvestment"}
+# NEFT is deliberately absent: it is the ordinary rail in India, so counting it
+# would mark every retail account high-risk.
+HIGH_RISK_FORMATS = {"wire", "rtgs", "cash", "crypto", "bitcoin", "reinvestment"}
+
+# What counts as a wire for the "wire usage" mix. Indian statements settle on RTGS
+# and NEFT rather than a format literally labelled "wire", so a wire share computed
+# only from the literal token would always read 0%.
+WIRE_FORMATS = {"wire", "rtgs", "neft"}
 
 TOP_N = 8
 
@@ -62,6 +69,10 @@ def _defaults() -> dict[str, Any]:
     weights = {**DEFAULT_WEIGHTS, **(bi.get("risk_weights") or {})}
     return {
         "weights": weights,
+        "wire_formats": {str(f).lower() for f in bi.get("wire_formats", WIRE_FORMATS)},
+        "high_risk_formats": {
+            str(f).lower() for f in bi.get("high_risk_formats", HIGH_RISK_FORMATS)
+        },
         "near_threshold_bands": bi.get(
             "near_threshold_bands",
             [{"threshold": 10000, "lower_pct": 0.9}, {"threshold": 50000, "lower_pct": 0.9}],
@@ -182,10 +193,26 @@ def _bank_centrality(edges: pd.DataFrame, bank_codes: list[str]) -> dict[str, di
     return metrics
 
 
-def build_bank_intelligence(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Compute edges, institution-level cycles and one profile per bank."""
+def build_bank_intelligence(
+    rows: list[dict[str, Any]],
+    skip_banks: Optional[set[str]] = None,
+    direct_banks: Optional[set[str]] = None,
+    display_names: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
+    """Compute edges, circular flows and one profile per bank.
+
+    skip_banks   codes that are placeholders rather than institutions (an
+                 unresolved counterparty). Their transfers still count toward the
+                 banks they touched, but they get no profile and never enter the
+                 peer distribution, where they would distort every z-score.
+    direct_banks codes we hold a statement for. Everything else is only observed
+                 from the outside, and is labelled partial evidence.
+    """
     opts = _defaults()
     weights = opts["weights"]
+    skip_banks = skip_banks or set()
+    direct_banks = direct_banks or set()
+    display_names = display_names or {}
 
     if not rows:
         return {"banks": [], "edges": [], "cycles": [], "summary": {}}
@@ -282,7 +309,7 @@ def build_bank_intelligence(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     # ------------------------------------------------------------ profiles
     profiles: list[dict[str, Any]] = []
-    bank_codes = list(seen["bank_code"])
+    bank_codes = [c for c in seen["bank_code"] if c not in skip_banks]
 
     for code in bank_codes:
         outgoing = df[df["from_bank"] == code]
@@ -321,17 +348,24 @@ def build_bank_intelligence(rows: list[dict[str, Any]]) -> dict[str, Any]:
             }
             for fmt, count in format_counts.items()
         ]
-        wire_share = round(float(format_counts.get("wire", 0)) / transfer_count, 4)
+        wire_share = round(
+            float(sum(format_counts.get(f, 0) for f in opts["wire_formats"])) / transfer_count, 4
+        )
         high_risk_share = round(
-            float(sum(format_counts.get(f, 0) for f in HIGH_RISK_FORMATS)) / transfer_count, 4
+            float(sum(format_counts.get(f, 0) for f in opts["high_risk_formats"]))
+            / transfer_count,
+            4,
         )
 
         # Currency corridors
+        has_currency = bool(involved["payment_currency"].notna().any())
         corridor_frame = (
             involved.groupby("corridor")
             .agg(transfer_count=("amount", "size"), total_amount=("amount", "sum"))
             .reset_index()
             .sort_values("total_amount", ascending=False)
+            if has_currency
+            else pd.DataFrame(columns=["corridor", "transfer_count", "total_amount"])
         )
         cross_currency_share = round(float(involved["cross_currency"].sum()) / transfer_count, 4)
 
@@ -382,7 +416,10 @@ def build_bank_intelligence(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
         profiles.append({
             "bank_code": code,
-            "display_name": code.replace("BANK_", "Bank "),
+            "display_name": display_names.get(code) or code.replace("BANK_", "Bank "),
+            "evidence_basis": "direct" if code in direct_banks else "partial",
+            "is_subject_bank": code in direct_banks,
+            "has_currency_data": has_currency,
             "component_values": component_values,
             "transfer_count": transfer_count,
             "sent_count": int(len(outgoing)),
@@ -444,6 +481,8 @@ def build_bank_intelligence(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     summary: dict[str, Any] = {
         "bank_count": len(bank_codes),
+        "direct_bank_count": len([c for c in bank_codes if c in direct_banks]),
+        "partial_bank_count": len([c for c in bank_codes if c not in direct_banks]),
         "transfer_count": int(len(df)),
         "total_value": round(float(df["amount"].sum()), 2),
         "edge_count": int(len(edges)),

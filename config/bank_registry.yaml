@@ -1,0 +1,141 @@
+# Institution reference data — offline, editable, no network lookups.
+#
+# ifsc_codes: the first four characters of an Indian IFSC identify the bank, so a
+# narration carrying an IFSC (or a reference token prefixed with a bank code)
+# identifies the counterparty institution exactly. Branch digits are deliberately
+# discarded — bank-level is what the profile needs, and it keeps branch-level
+# location out of the analysis.
+ifsc_codes:
+  SBIN: State Bank of India
+  HDFC: HDFC Bank
+  ICIC: ICICI Bank
+  UTIB: Axis Bank
+  PUNB: Punjab National Bank
+  KKBK: Kotak Mahindra Bank
+  YESB: Yes Bank
+  IDIB: Indian Bank
+  IOBA: Indian Overseas Bank
+  CNRB: Canara Bank
+  BARB: Bank of Baroda
+  UBIN: Union Bank of India
+  MAHB: Bank of Maharashtra
+  BKID: Bank of India
+  CBIN: Central Bank of India
+  INDB: IndusInd Bank
+  FDRL: Federal Bank
+  RATN: RBL Bank
+  IDFB: IDFC First Bank
+  AUBL: AU Small Finance Bank
+  UCBA: UCO Bank
+  PSIB: Punjab & Sind Bank
+  TMBL: Tamilnad Mercantile Bank
+  KVBL: Karur Vysya Bank
+  DCBL: DCB Bank
+  SIBL: South Indian Bank
+  CSBK: CSB Bank
+  JAKA: Jammu & Kashmir Bank
+  KARB: Karnataka Bank
+  CIUB: City Union Bank
+  BDBL: Bandhan Bank
+  ESFB: Equitas Small Finance Bank
+  UJVN: Ujjivan Small Finance Bank
+  PYTM: Paytm Payments Bank
+  AIRP: Airtel Payments Bank
+  FINO: Fino Payments Bank
+  NSPB: NSDL Payments Bank
+  JIOP: Jio Payments Bank
+  SCBL: Standard Chartered Bank
+  CITI: Citibank
+  HSBC: HSBC India
+  DEUT: Deutsche Bank
+  BOFA: Bank of America
+
+# UPI virtual-address handles map to the bank or PSP that issued them.
+upi_handles:
+  oksbi: SBIN
+  okhdfcbank: HDFC
+  okicici: ICIC
+  okaxis: UTIB
+  ybl: YESB
+  ibl: IDFB
+  axl: UTIB
+  axisbank: UTIB
+  hdfcbank: HDFC
+  icici: ICIC
+  sbi: SBIN
+  kotak: KKBK
+  kmbl: KKBK
+  paytm: PYTM
+  ptyes: PYTM
+  ptsbi: PYTM
+  ptaxis: PYTM
+  airtel: AIRP
+  apl: AIRP
+  fbl: FDRL
+  federal: FDRL
+  idfcbank: IDFB
+  indus: INDB
+  rbl: RATN
+  yapl: YESB
+  jio: JIOP
+
+# Names and abbreviations that appear in narration text rather than as a code.
+name_aliases:
+  state bank of india: SBIN
+  state bank: SBIN
+  sbi: SBIN
+  hdfc: HDFC
+  icici: ICIC
+  axis: UTIB
+  punjab national: PUNB
+  pnb: PUNB
+  kotak: KKBK
+  yes bank: YESB
+  indusind: INDB
+  federal bank: FDRL
+  idfc: IDFB
+  rbl: RATN
+  canara: CNRB
+  bank of baroda: BARB
+  union bank: UBIN
+  bank of india: BKID
+  central bank: CBIN
+  indian bank: IDIB
+  indian overseas: IOBA
+  paytm: PYTM
+  airtel payments: AIRP
+  standard chartered: SCBL
+  citibank: CITI
+  hsbc: HSBC
+
+# Tokens that identify a platform or scheme rather than an institution. Matching
+# one resolves nothing: attributing a UPI collection to "BHIM" would invent a bank.
+non_institution_tokens:
+  - bhim
+  - bhim_upi
+  - upi
+  - npci
+  - rupay
+  - visa
+  - mastercard
+  - imps
+  - neft
+  - rtgs
+  - pos
+  - atm
+  - ecs
+  - nach
+  - cash
+  - cheque
+  - chq
+  - self
+  - gpay
+  - googlepay
+  - phonepe
+  - amazonpay
+  - mobikwik
+  - freecharge
+  - razorpay
+  - billdesk
+  - upiout
+  - upiin
