@@ -9,6 +9,7 @@ from app.api.routes_upload import router as upload_router
 from app.api.routes_review import router as review_router
 from app.api.routes_analysis import router as analysis_router
 from app.api.routes_graph import router as graph_router
+from app.api.routes_banks import router as banks_router
 from app.api.routes_report import router as report_router
 from app.api.routes_config import router as config_router
 from app.db.session import engine
@@ -38,6 +39,7 @@ app.include_router(upload_router, prefix="/api/statements", tags=["upload"])
 app.include_router(review_router, prefix="/api/statements", tags=["review"])
 app.include_router(analysis_router, prefix="/api/statements", tags=["analysis"])
 app.include_router(graph_router, prefix="/api/statements", tags=["graph"])
+app.include_router(banks_router, prefix="/api/intel", tags=["bank-intelligence"])
 app.include_router(report_router, prefix="/api/statements", tags=["report"])
 app.include_router(config_router, prefix="/api/config", tags=["config"])
 

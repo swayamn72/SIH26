@@ -86,6 +86,92 @@ class InvestigatorLabel(SQLModel, table=True):
     labeled_ts: datetime = Field(default_factory=datetime.utcnow)
 
 
+class TransferDataset(SQLModel, table=True):
+    """An ingested interbank transfer ledger (e.g. an AML transaction network export).
+
+    Distinct from Statement: a statement is one account's history, a dataset is a
+    multi-party ledger where every row names both institutions.
+    """
+
+    __tablename__ = "transfer_datasets"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    original_filename: Optional[str] = Field(default=None, max_length=512)
+    upload_ts: datetime = Field(default_factory=datetime.utcnow)
+    status: str = Field(default="ingested", max_length=32)
+    row_count: int = 0
+    rows_skipped: int = 0
+    truncated: bool = False
+    bank_count: int = 0
+    account_count: int = 0
+    total_value: float = 0.0
+    observed_start: Optional[datetime] = None
+    observed_end: Optional[datetime] = None
+    has_labels: bool = False
+    detected_column_mapping: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    currencies: Optional[list[str]] = Field(default=None, sa_column=Column(JSON))
+    payment_formats: Optional[list[str]] = Field(default=None, sa_column=Column(JSON))
+    # Circular fund flows found between accounts in this ledger. Kept here rather
+    # than in `cycles` because those rows are shaped for single-statement analysis.
+    flow_cycles: Optional[list[dict[str, Any]]] = Field(default=None, sa_column=Column(JSON))
+
+
+class Bank(SQLModel, table=True):
+    """An institution seen in a transfer dataset — a stable node in the bank graph."""
+
+    __tablename__ = "banks"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    dataset_id: int = Field(foreign_key="transfer_datasets.id", index=True)
+    bank_code: str = Field(max_length=64, index=True)
+    display_name: str = Field(max_length=255)
+
+
+class InterbankTransfer(SQLModel, table=True):
+    __tablename__ = "interbank_transfers"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    dataset_id: int = Field(foreign_key="transfer_datasets.id", index=True)
+    txn_ts: Optional[datetime] = Field(default=None, index=True)
+    from_bank: str = Field(max_length=64, index=True)
+    from_account: Optional[str] = Field(default=None, max_length=64)
+    to_bank: str = Field(max_length=64, index=True)
+    to_account: Optional[str] = Field(default=None, max_length=64)
+    amount_paid: float = 0.0
+    payment_currency: Optional[str] = Field(default=None, max_length=16)
+    amount_received: float = 0.0
+    receiving_currency: Optional[str] = Field(default=None, max_length=16)
+    payment_format: Optional[str] = Field(default=None, max_length=32)
+    is_labelled_laundering: bool = False
+
+
+class BankEdge(SQLModel, table=True):
+    """Aggregated bank -> bank flow, so the network view never re-scans the ledger."""
+
+    __tablename__ = "bank_edges"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    dataset_id: int = Field(foreign_key="transfer_datasets.id", index=True)
+    from_bank: str = Field(max_length=64, index=True)
+    to_bank: str = Field(max_length=64, index=True)
+    transfer_count: int = 0
+    total_amount: float = 0.0
+    labelled_laundering_count: int = 0
+
+
+class BankProfileRecord(SQLModel, table=True):
+    """Pre-computed behavioural profile for one bank in one dataset."""
+
+    __tablename__ = "bank_profiles"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    dataset_id: int = Field(foreign_key="transfer_datasets.id", index=True)
+    bank_code: str = Field(max_length=64, index=True)
+    risk_score: float = 0.0
+    risk_tier: str = Field(default="LOW", max_length=16)
+    transfer_count: int = 0
+    total_received: float = 0.0
+    total_sent: float = 0.0
+    connected_banks: int = 0
+    avg_transfer: float = 0.0
+    json_blob: dict[str, Any] = Field(sa_column=Column(JSON))
+
+
 class ConfigAuditLog(SQLModel, table=True):
     __tablename__ = "config_audit_log"
     id: Optional[int] = Field(default=None, primary_key=True)

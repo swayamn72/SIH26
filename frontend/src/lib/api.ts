@@ -224,6 +224,162 @@ export type PatternsResponse = {
   patterns: SuspiciousPattern[];
 };
 
+/* ------------------------------------------------- bank intelligence */
+
+export type TransferDataset = {
+  id: number;
+  original_filename: string | null;
+  upload_ts: string;
+  status: string;
+  row_count: number;
+  rows_skipped: number;
+  truncated: boolean;
+  bank_count: number;
+  account_count: number;
+  total_value: number;
+  observed_start: string | null;
+  observed_end: string | null;
+  has_labels: boolean;
+  detected_column_mapping: Record<string, string>;
+  currencies: string[];
+  payment_formats: string[];
+};
+
+export type RiskComponent = {
+  name: string;
+  value: number;
+  weight: number;
+  severity: number;
+  absolute_scale: number;
+  peer_scale: number;
+  peer_z: number;
+  reference: number;
+  driver: "peers" | "level";
+  points: number;
+  description: string;
+};
+
+export type NamedTotal = { name: string; transfer_count: number; total_amount: number };
+
+export type FlowCycle = {
+  cycle_id: string;
+  accounts: string[];
+  banks: string[];
+  hop_count: number;
+  principal: number;
+  total_amount: number;
+  cycle_span_days: number;
+  recurrence: number;
+  amount_conservation_ratio: number;
+  velocity_compression: number;
+  cycle_recurrence: number;
+  cycle_risk_score: number;
+  transfer_count?: number;
+  transfer_indices?: number[];
+};
+
+export type BankProfile = {
+  bank_code: string;
+  display_name: string;
+  risk_score: number;
+  risk_tier: "HIGH" | "MEDIUM" | "LOW";
+  risk_components: RiskComponent[];
+  risk_formula: string;
+  transfer_count: number;
+  sent_count: number;
+  received_count: number;
+  total_sent: number;
+  total_received: number;
+  net_flow: number;
+  avg_transfer: number;
+  median_transfer: number;
+  max_transfer: number;
+  connected_banks: number;
+  counterparty_banks: NamedTotal[];
+  format_mix: { format: string; count: number; share: number }[];
+  wire_share: number;
+  high_risk_format_share: number;
+  currency_corridors: NamedTotal[];
+  cross_currency_share: number;
+  account_count: number;
+  account_concentration_hhi: number;
+  top_accounts: NamedTotal[];
+  active_days: number;
+  busiest_day: string | null;
+  busiest_day_transfers: number;
+  burst_velocity: number;
+  structuring_share: number;
+  near_threshold_transfers: number;
+  threshold_bands: { threshold: number; lower_pct: number }[];
+  first_seen: string | null;
+  last_seen: string | null;
+  centrality: Record<string, number | null>;
+  cycle_ids: string[];
+  cycle_exposure: number;
+  cycle_transfers: number;
+  labelled_laundering_transfers: number;
+  labelled_laundering_share: number;
+};
+
+export type BankListResponse = {
+  dataset: TransferDataset;
+  summary: {
+    bank_count: number;
+    transfer_count: number;
+    total_value: number;
+    account_count: number;
+    cycle_count: number;
+    tier_counts: Record<string, number>;
+    avg_risk_score: number;
+    top_bank: string | null;
+    has_labels: boolean;
+    label_evaluation?: {
+      banks_touching_labelled_transfers: number;
+      banks_scored_high: number;
+      high_scored_and_labelled: number;
+      labelled_but_not_high: number;
+      note: string;
+    };
+  };
+  banks: BankProfile[];
+  total: number;
+};
+
+export type BankDetailResponse = {
+  dataset: TransferDataset;
+  profile: BankProfile;
+  neighbourhood: {
+    from_bank: string;
+    to_bank: string;
+    transfer_count: number;
+    total_amount: number;
+    direction: "incoming" | "outgoing";
+  }[];
+  cycles: FlowCycle[];
+};
+
+export type BankGraphResponse = {
+  dataset_id: number;
+  nodes: {
+    id: string;
+    label: string;
+    flow: number;
+    risk_score: number;
+    risk_tier: string;
+    transfer_count: number;
+    connected_banks: number;
+  }[];
+  edges: {
+    source: string;
+    target: string;
+    amount: number;
+    transfer_count: number;
+    row_id: string;
+    labelled_laundering_count: number;
+  }[];
+  cycles: FlowCycle[];
+};
+
 export type StatementItem = {
   id: number;
   original_filename: string | null;
@@ -289,6 +445,46 @@ export const api = {
   getPatterns: (id: number) => request<PatternsResponse>(`/statements/${id}/patterns`),
 
   getWhyFlagged: (id: number) => request<WhyFlagged>(`/statements/${id}/why-flagged`),
+
+  // ---------------------------------------------------- bank intelligence
+  listTransferDatasets: () => request<TransferDataset[]>("/intel/datasets"),
+
+  uploadTransferDataset: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<TransferDataset>("/intel/datasets/upload", { method: "POST", body: form });
+  },
+
+  deleteTransferDataset: (id: number) =>
+    request<{ status: string }>(`/intel/datasets/${id}`, { method: "DELETE" }),
+
+  getBanks: (params: {
+    datasetId?: number;
+    search?: string;
+    tier?: string;
+    sort?: string;
+    order?: string;
+    limit?: number;
+  } = {}) => {
+    const q = new URLSearchParams();
+    if (params.datasetId != null) q.set("dataset_id", String(params.datasetId));
+    if (params.search) q.set("search", params.search);
+    if (params.tier) q.set("tier", params.tier);
+    if (params.sort) q.set("sort", params.sort);
+    if (params.order) q.set("order", params.order);
+    q.set("limit", String(params.limit ?? 200));
+    return request<BankListResponse>(`/intel/banks?${q.toString()}`);
+  },
+
+  getBankProfile: (bankCode: string, datasetId?: number) => {
+    const q = datasetId != null ? `?dataset_id=${datasetId}` : "";
+    return request<BankDetailResponse>(`/intel/banks/${encodeURIComponent(bankCode)}${q}`);
+  },
+
+  getBankGraph: (datasetId?: number) => {
+    const q = datasetId != null ? `?dataset_id=${datasetId}` : "";
+    return request<BankGraphResponse>(`/intel/graph${q}`);
+  },
 
   getNarrative: async (id: number) => {
     const res = await request<{ statement_id: number; narrative: string; source: string }>(`/statements/${id}/narrative`);

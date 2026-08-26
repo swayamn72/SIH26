@@ -13,12 +13,15 @@ import {
   X,
   WifiOff,
   Lock,
+  Landmark,
 } from "lucide-react";
 import { UploadPage } from "./pages/UploadPage";
 import { ExtractionReviewPage } from "./pages/ExtractionReviewPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { EvidenceExplorerPage } from "./pages/EvidenceExplorerPage";
 import { ProofGraphPage } from "./pages/ProofGraphPage";
+import { BankIntelligencePage } from "./pages/BankIntelligencePage";
+import { BankProfilePage } from "./pages/BankProfilePage";
 import { StatementProvider, useStatement } from "./lib/StatementContext";
 import { TIER_META } from "./components/ui";
 
@@ -28,9 +31,11 @@ function AppLayout() {
   const { statements, currentId, currentStatement, setCurrentId, purgeAll } = useStatement();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Close mobile sidebar on page navigation
+  // Close mobile sidebar on page navigation, and start each screen at the top
+  // rather than inheriting the previous page's scroll offset.
   useEffect(() => {
     setMobileMenuOpen(false);
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
   }, [location.pathname]);
 
   // Close mobile sidebar on Escape key
@@ -90,6 +95,16 @@ function AppLayout() {
       icon: GitGraph,
       activePath: "/graph",
       locked: !currentId,
+    },
+  ];
+
+  const intelItems = [
+    {
+      to: "/banks",
+      label: "Bank Intelligence",
+      hint: "Institution profiles",
+      icon: Landmark,
+      activePath: "/banks",
     },
   ];
 
@@ -299,6 +314,42 @@ function AppLayout() {
               scoring.
             </p>
           )}
+
+          <p className="px-2 pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-500">
+            Network intelligence
+          </p>
+          <div className="space-y-0.5">
+            {intelItems.map(({ to, label, hint, icon: Icon, activePath }) => {
+              const isItemActive = location.pathname.startsWith(activePath);
+              return (
+                <NavLink
+                  key={label}
+                  to={to}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors ${
+                    isItemActive ? "bg-white/10 text-white" : "text-ink-200 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  {isItemActive && (
+                    <span className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-r-full bg-brand-500" />
+                  )}
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${
+                      isItemActive
+                        ? "border-brand-500/40 bg-brand-600/20 text-brand-300"
+                        : "border-white/10 bg-white/5 text-ink-400 group-hover:text-ink-200"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium">{label}</span>
+                    <span className="block truncate text-[10px] text-ink-500">{hint}</span>
+                  </span>
+                </NavLink>
+              );
+            })}
+          </div>
         </nav>
 
         {/* Footer */}
@@ -330,6 +381,8 @@ function AppLayout() {
           <Route path="/evidence/:id" element={<EvidenceExplorerPage />} />
           <Route path="/graph" element={<ProofGraphPage />} />
           <Route path="/graph/:id" element={<ProofGraphPage />} />
+          <Route path="/banks" element={<BankIntelligencePage />} />
+          <Route path="/banks/:code" element={<BankProfilePage />} />
         </Routes>
       </main>
     </div>

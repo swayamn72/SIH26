@@ -86,6 +86,23 @@ export function compactMoney(value: number | null | undefined): string {
   return `₹${inr.format(Math.round(value))}`;
 }
 
+/** Grouped number with no currency symbol — transfer ledgers carry their own currencies. */
+export const grouped = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
+export function compactNumber(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  const abs = Math.abs(value);
+  if (abs >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
+  return grouped.format(value);
+}
+
+export function percent(value: number | null | undefined, digits = 1): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const dt = new Date(value);

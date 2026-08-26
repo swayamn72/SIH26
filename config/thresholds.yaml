@@ -45,6 +45,41 @@ cycle:
   max_cycle_length: 6
   dense_component_edge_cap: 1000
   min_cycle_risk_score: 0.6
+bank_intelligence:
+  flow_cycles:
+    max_hops: 6
+    min_hops: 3
+    window_days: 10
+    amount_tolerance: 0.25
+    min_amount_percentile: 0.6
+    max_cycles: 250
+    max_expansions: 400000
+    min_risk_score: 0.5
+  max_rows: 250000
+  max_banks_profiled: 500
+  high_risk_tier_min: 45
+  medium_risk_tier_min: 25
+  near_threshold_bands:
+  - threshold: 10000
+    lower_pct: 0.9
+  - threshold: 50000
+    lower_pct: 0.9
+  absolute_references:
+    cycle_exposure: 0.1
+    structuring_share: 0.15
+    network_centrality: 0.25
+    account_concentration: 0.5
+    cross_currency_share: 0.4
+    high_risk_format_share: 0.5
+    burst_velocity: 0.25
+  risk_weights:
+    cycle_exposure: 0.24
+    structuring_share: 0.18
+    network_centrality: 0.16
+    account_concentration: 0.14
+    cross_currency_share: 0.12
+    high_risk_format_share: 0.1
+    burst_velocity: 0.06
 pattern_timeline:
   layering_max_hold_days: 1
   layering_min_amount_match: 0.6
