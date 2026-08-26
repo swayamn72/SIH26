@@ -1,3 +1,6 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Badge, TBody, THead, Table, Td, Th, formatDate, inr } from "./ui";
+
 type TransactionRow = {
   row_id: string;
   txn_date: string;
@@ -20,72 +23,102 @@ type TransactionTableProps = {
   onPageChange: (page: number) => void;
 };
 
+function amount(value: number | null): string {
+  if (value == null || Number.isNaN(Number(value))) return "";
+  return inr.format(Number(value));
+}
+
 export function TransactionTable({ rows, total, page, pageSize, onPageChange }: TransactionTableProps) {
-  const totalPages = Math.ceil(total / pageSize);
+  const totalPages = Math.max(Math.ceil(total / pageSize), 1);
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm min-w-[650px]">
-        <thead>
-          <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase">
-            <th className="px-3 py-2">Date</th>
-            <th className="px-3 py-2">Narration</th>
-            <th className="px-3 py-2 text-right">Debit</th>
-            <th className="px-3 py-2 text-right">Credit</th>
-            <th className="px-3 py-2 text-right">Balance</th>
-            <th className="px-3 py-2">Channel</th>
-            <th className="px-3 py-2">Category</th>
-            <th className="px-3 py-2">Flags</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {rows.map((r) => (
-            <tr key={r.row_id} className="hover:bg-gray-50">
-              <td className="px-3 py-2 whitespace-nowrap">{r.txn_date}</td>
-              <td className="px-3 py-2 max-w-xs truncate" title={r.narration}>{r.narration}</td>
-              <td className="px-3 py-2 text-right text-red-600">{r.debit_amount != null && !isNaN(Number(r.debit_amount)) ? Number(r.debit_amount).toFixed(2) : ""}</td>
-              <td className="px-3 py-2 text-right text-green-600">{r.credit_amount != null && !isNaN(Number(r.credit_amount)) ? Number(r.credit_amount).toFixed(2) : ""}</td>
-              <td className="px-3 py-2 text-right">{r.balance_after != null && !isNaN(Number(r.balance_after)) ? Number(r.balance_after).toFixed(2) : ""}</td>
-              <td className="px-3 py-2">{r.channel ?? ""}</td>
-              <td className="px-3 py-2">{r.category ?? ""}</td>
-              <td className="px-3 py-2">
-                {r.tagged_rules.length > 0 && (
-                  <span className="inline-block bg-red-100 text-red-700 text-xs px-1.5 py-0.5 rounded mr-1">
-                    R{r.tagged_rules.length}
-                  </span>
-                )}
-                {r.tagged_cycles.length > 0 && (
-                  <span className="inline-block bg-purple-100 text-purple-700 text-xs px-1.5 py-0.5 rounded">
-                    C{r.tagged_cycles.length}
-                  </span>
-                )}
-              </td>
+    <div>
+      <Table minWidth={880}>
+        <THead>
+          <Th>Date</Th>
+          <Th>Narration</Th>
+          <Th align="right">Debit</Th>
+          <Th align="right">Credit</Th>
+          <Th align="right">Balance</Th>
+          <Th>Channel</Th>
+          <Th>Category</Th>
+          <Th>Flags</Th>
+        </THead>
+        <TBody>
+          {rows.map((r) => {
+            const flagged = r.tagged_rules.length > 0 || r.tagged_cycles.length > 0;
+            return (
+              <tr
+                key={r.row_id}
+                className={`transition-colors ${flagged ? "bg-red-50/40" : "hover:bg-ink-50/70"}`}
+              >
+                <Td className="whitespace-nowrap text-[12px] text-ink-500">{formatDate(r.txn_date)}</Td>
+                <Td className="max-w-[280px] truncate text-[12px] text-ink-700" >
+                  <span title={r.narration}>{r.narration}</span>
+                </Td>
+                <Td align="right" className="num text-[12px] font-medium text-red-600">
+                  {amount(r.debit_amount)}
+                </Td>
+                <Td align="right" className="num text-[12px] font-medium text-emerald-700">
+                  {amount(r.credit_amount)}
+                </Td>
+                <Td align="right" className="num text-[12px] text-ink-500">
+                  {amount(r.balance_after)}
+                </Td>
+                <Td className="text-[11px] uppercase tracking-wide text-ink-400">{r.channel ?? "—"}</Td>
+                <Td className="text-[12px] text-ink-500">{r.category ?? "—"}</Td>
+                <Td>
+                  <div className="flex flex-wrap gap-1">
+                    {r.tagged_rules.length > 0 && (
+                      <Badge tone="danger">{r.tagged_rules.length} rule</Badge>
+                    )}
+                    {r.tagged_cycles.length > 0 && (
+                      <Badge tone="accent">{r.tagged_cycles.length} cycle</Badge>
+                    )}
+                    {!flagged && <span className="text-[11px] text-ink-300">—</span>}
+                  </div>
+                </Td>
+              </tr>
+            );
+          })}
+          {rows.length === 0 && (
+            <tr>
+              <Td className="py-6 text-center text-[12px] text-ink-400" align="center">
+                No transactions to display.
+              </Td>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-3 py-2 border-t text-sm text-gray-500">
-          <span>{total} rows</span>
-          <div className="flex gap-1">
+          )}
+        </TBody>
+      </Table>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 bg-ink-50/50 px-4 py-2.5">
+        <span className="num text-[11px] text-ink-400">
+          Showing {from}–{to} of {total} rows
+        </span>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1">
             <button
               disabled={page <= 1}
               onClick={() => onPageChange(page - 1)}
-              className="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-30"
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-ink-200 bg-white px-2 text-[11px] font-medium text-ink-600 transition-colors hover:bg-ink-50 disabled:opacity-40"
             >
-              Prev
+              <ChevronLeft className="h-3.5 w-3.5" /> Prev
             </button>
-            <span className="px-2 py-1">{page} / {totalPages}</span>
+            <span className="num px-2 text-[11px] text-ink-500">
+              Page {page} / {totalPages}
+            </span>
             <button
               disabled={page >= totalPages}
               onClick={() => onPageChange(page + 1)}
-              className="px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-30"
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-ink-200 bg-white px-2 text-[11px] font-medium text-ink-600 transition-colors hover:bg-ink-50 disabled:opacity-40"
             >
-              Next
+              Next <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

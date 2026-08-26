@@ -1,14 +1,16 @@
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.db.session import get_session
-from app.db.models import Statement, Transaction, EvidenceBundleRecord
+from app.db.models import Counterparty, Statement, Transaction, EvidenceBundleRecord
 from app.evidence.evidence_schema import EvidenceBundle
 from app.evidence.evidence_bundle import evidence_bundle_to_json
+from app.evidence.pattern_timeline import build_patterns
+from app.evidence.why_flagged import build_why_flagged
 from app.llm.narrative_generator import generate_narrative
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,13 @@ class NarrativeOut(BaseModel):
     source: str
 
 
+class PatternsOut(BaseModel):
+    statement_id: int
+    subject_node_id: str
+    subject_label: str
+    patterns: list[dict[str, Any]] = []
+
+
 def _load_statement_or_404(db: Session, statement_id: int) -> Statement:
     stmt = db.get(Statement, statement_id)
     if stmt is None:
@@ -65,6 +74,93 @@ async def get_evidence(statement_id: int, db: Session = Depends(get_session)):
     if rec is None:
         raise HTTPException(status_code=404, detail="No evidence bundle found for this statement")
     return rec.json_blob
+
+
+@router.get("/{statement_id}/why-flagged")
+async def get_why_flagged(statement_id: int, db: Session = Depends(get_session)):
+    """Ranked, evidence-backed reasons behind the statement's risk decision."""
+    _load_statement_or_404(db, statement_id)
+
+    rec = db.exec(
+        select(EvidenceBundleRecord)
+        .where(EvidenceBundleRecord.statement_id == statement_id)
+        .order_by(EvidenceBundleRecord.created_ts.desc())
+    ).first()
+    if rec is None or not rec.json_blob:
+        raise HTTPException(
+            status_code=404,
+            detail="No evidence bundle found for this statement - confirm extraction first",
+        )
+
+    txns = list(
+        db.exec(select(Transaction).where(Transaction.statement_id == statement_id)).all()
+    )
+    node_labels = {
+        str(cp.id): cp.canonical_name for cp in db.exec(select(Counterparty)).all()
+    }
+
+    stmt = db.get(Statement, statement_id)
+    patterns = build_patterns(
+        statement_id=statement_id,
+        txns=txns,
+        cycles=rec.json_blob.get("cycles_detected", []),
+        triggered_rules=rec.json_blob.get("triggered_rules", []),
+        node_labels=node_labels,
+        subject_label=(stmt.account_holder if stmt else None) or f"Account #{statement_id}",
+    )
+
+    return build_why_flagged(
+        statement_id=statement_id,
+        bundle=rec.json_blob,
+        patterns=patterns,
+        txns=txns,
+        node_labels=node_labels,
+    )
+
+
+@router.get("/{statement_id}/patterns", response_model=PatternsOut)
+async def get_patterns(statement_id: int, db: Session = Depends(get_session)):
+    """Suspicious patterns as hop-by-hop timelines (A -> B -> C -> A)."""
+    stmt = _load_statement_or_404(db, statement_id)
+    subject_node_id = f"ACCT_{statement_id}"
+    subject_label = stmt.account_holder or f"Account #{statement_id}"
+
+    txns = db.exec(
+        select(Transaction).where(Transaction.statement_id == statement_id)
+    ).all()
+    if not txns:
+        return PatternsOut(
+            statement_id=statement_id,
+            subject_node_id=subject_node_id,
+            subject_label=subject_label,
+        )
+
+    rec = db.exec(
+        select(EvidenceBundleRecord)
+        .where(EvidenceBundleRecord.statement_id == statement_id)
+        .order_by(EvidenceBundleRecord.created_ts.desc())
+    ).first()
+    blob = rec.json_blob if rec and rec.json_blob else {}
+
+    node_labels = {
+        str(cp.id): cp.canonical_name for cp in db.exec(select(Counterparty)).all()
+    }
+
+    patterns = build_patterns(
+        statement_id=statement_id,
+        txns=list(txns),
+        cycles=blob.get("cycles_detected", []),
+        triggered_rules=blob.get("triggered_rules", []),
+        node_labels=node_labels,
+        subject_label=subject_label,
+    )
+
+    return PatternsOut(
+        statement_id=statement_id,
+        subject_node_id=subject_node_id,
+        subject_label=subject_label,
+        patterns=patterns,
+    )
 
 
 @router.get("/{statement_id}/transactions", response_model=TransactionPageOut)

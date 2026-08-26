@@ -58,7 +58,7 @@ def _transactions_to_df(txns: list[Transaction]) -> pd.DataFrame:
 
 @router.get("/{statement_id}/graph", response_model=GraphOut)
 async def get_graph(statement_id: int, db: Session = Depends(get_session)):
-    _load_statement_or_404(db, statement_id)
+    stmt = _load_statement_or_404(db, statement_id)
     txns = db.exec(
         select(Transaction).where(Transaction.statement_id == statement_id)
     ).all()
@@ -69,9 +69,17 @@ async def get_graph(statement_id: int, db: Session = Depends(get_session)):
     node_labels = {str(cp.id): cp.canonical_name for cp in all_cps}
 
     df = _transactions_to_df(txns)
-    G = build_transaction_graph(df, subject_account_id=f"ACCT_{statement_id}", node_labels=node_labels)
+    subject_node_id = f"ACCT_{statement_id}"
+    G = build_transaction_graph(df, subject_account_id=subject_node_id, node_labels=node_labels)
     graph_data = graph_to_json(G)
     centrality = compute_centrality_metrics(G)
+
+    # Show the same subject label the evidence timeline uses, so a focused pattern reads
+    # identically on both screens.
+    if stmt.account_holder:
+        for node in graph_data.get("nodes", []):
+            if node.get("id") == subject_node_id:
+                node["label"] = stmt.account_holder
 
     # Use pre-computed cycles from cache — avoid re-running expensive cycle detection
     ev_rec = db.exec(

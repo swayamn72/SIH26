@@ -1,25 +1,126 @@
 import { useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { LayoutDashboard, GitGraph, Search, FileText, ArrowRight, Upload } from "lucide-react";
-import { RiskGauge } from "../components/RiskGauge";
-import { MetricCard } from "../components/MetricCard";
+import { useParams, useNavigate } from "react-router-dom";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import {
+  LayoutDashboard,
+  GitGraph,
+  Search,
+  FileText,
+  Upload,
+  ArrowRight,
+  ShieldAlert,
+  Repeat,
+  Table2,
+  SlidersHorizontal,
+  Calendar,
+  Database,
+} from "lucide-react";
 import { RuleTriggerList } from "../components/RuleTriggerList";
 import { TransactionTable } from "../components/TransactionTable";
 import { NarrativePanel } from "../components/NarrativePanel";
-import { api, EvidenceBundle } from "../lib/api";
+import { WhyFlaggedPanel } from "../components/WhyFlaggedPanel";
+import { api, EvidenceBundle, WhyFlagged } from "../lib/api";
 import { useStatement } from "../lib/StatementContext";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  LinkButton,
+  LoadingPanel,
+  MetaItem,
+  PageHeader,
+  ProgressBar,
+  TierBadge,
+  formatDate,
+} from "../components/ui";
+
+type FeatureRow = {
+  name: string;
+  value: unknown;
+  formula?: unknown;
+  explanation?: unknown;
+  family?: unknown;
+};
+
+const FAMILY_LABEL: Record<string, string> = {
+  lifecycle: "Account lifecycle",
+  behavior: "Balance behaviour",
+  velocity: "Velocity",
+  structuring: "Amount structuring",
+  network: "Counterparty network",
+  identity: "Identity proxies",
+  graph: "Graph",
+};
+
+/** Ratio-style features (0–1) get a bar; absolute magnitudes just show the number. */
+function FeatureGrid({ features }: { features: FeatureRow[] }) {
+  const grouped = features.reduce<Record<string, FeatureRow[]>>((acc, f) => {
+    const family = String(f.family || "other");
+    (acc[family] ||= []).push(f);
+    return acc;
+  }, {});
+
+  const families = Object.keys(grouped).sort();
+
+  return (
+    <div className="space-y-4">
+      {families.map((family) => (
+        <div key={family}>
+          <p className="label-micro mb-2">{FAMILY_LABEL[family] || family}</p>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {(grouped[family] || []).map((f) => {
+              const num = typeof f.value === "number" ? f.value : null;
+              // Only genuine 0–1 proportions get a percentage bar; counts like
+              // dormancy_breaks would otherwise read as "100%".
+              const isRatio =
+                num != null && num >= 0 && num <= 1 && /(_ratio|_score|_hhi)$/.test(f.name);
+              return (
+                <div
+                  key={f.name}
+                  className="rounded-lg border border-ink-100 bg-white p-2.5"
+                  title={String(f.formula || "")}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span
+                      className="truncate font-mono text-[11px] text-ink-500"
+                      title={f.name}
+                    >
+                      {f.name}
+                    </span>
+                    <span className="num shrink-0 text-[13px] font-semibold text-ink-900">
+                      {num != null ? (isRatio ? `${(num * 100).toFixed(1)}%` : num.toFixed(2)) : "—"}
+                    </span>
+                  </div>
+                  {isRatio && <ProgressBar value={num * 100} className="mt-1.5" tone="info" />}
+                  {!!f.explanation && (
+                    <p className="mt-1 truncate text-[10px] text-ink-400">{String(f.explanation)}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function DashboardPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentId, setCurrentId, statements } = useStatement();
+  const { currentId, setCurrentId, statements, currentStatement } = useStatement();
 
   const effectiveId = id ? Number(id) : currentId;
 
   const [bundle, setBundle] = useState<EvidenceBundle | null>(null);
+  const [whyFlagged, setWhyFlagged] = useState<WhyFlagged | null>(null);
   const [narrative, setNarrative] = useState<{ text: string; source: string } | null>(null);
-  const [transactions, setTransactions] = useState<{ rows: Record<string, unknown>[]; total: number }>({ rows: [], total: 0 });
+  const [transactions, setTransactions] = useState<{ rows: Record<string, unknown>[]; total: number }>({
+    rows: [],
+    total: 0,
+  });
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -41,266 +142,301 @@ export function DashboardPage() {
     Promise.all([
       api.getEvidence(effectiveId).catch(() => null),
       api.getTransactions(effectiveId).catch(() => ({ rows: [], total: 0 })),
+      api.getWhyFlagged(effectiveId).catch(() => null),
     ])
-      .then(([evBundle, txns]) => {
+      .then(([evBundle, txns, why]) => {
         if (!evBundle) {
           setNotFound(true);
         } else {
           setBundle(evBundle);
         }
         if (txns) setTransactions(txns as any);
+        setWhyFlagged(why);
       })
       .finally(() => setLoading(false));
 
-    // Fetch the LLM narrative separately since it takes a long time
-    api.getNarrative(effectiveId)
+    // Narrative generation is slow — let it land on its own.
+    api
+      .getNarrative(effectiveId)
       .then((narr) => {
         if (narr) setNarrative(narr);
       })
       .catch(() => null);
   }, [effectiveId]);
 
-  if (loading) {
-    return (
-      <div className="p-8 text-gray-500 flex items-center gap-2">
-        <LayoutDashboard className="w-5 h-5 animate-pulse text-blue-600" /> Loading analysis dashboard...
-      </div>
-    );
-  }
+  if (loading) return <LoadingPanel label="Loading risk dashboard" />;
 
   if (!effectiveId || notFound || !bundle) {
     return (
-      <div className="p-4 sm:p-6 max-w-4xl mx-auto">
-        <div className="bg-white border rounded-xl p-6 sm:p-8 text-center shadow-sm space-y-4">
-          <LayoutDashboard className="w-12 h-12 mx-auto text-gray-400" />
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">
-              {!effectiveId ? "No Statement Selected" : `Statement #${effectiveId} Not Yet Analyzed`}
-            </h2>
-            <p className="text-sm text-gray-500 mt-1">
-              {!effectiveId
-                ? "Select a statement from history or upload a new statement."
-                : "You need to confirm the column mapping before detection rules can run."}
-            </p>
-          </div>
-
-          {effectiveId && (
-            <div>
-              <button
-                onClick={() => navigate(`/review/${effectiveId}`)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm transition-colors"
-              >
-                Review & Confirm Extraction <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {statements.length > 0 && (
-            <div className="mt-6 pt-6 border-t text-left">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Available Statements</h3>
-              <div className="max-w-md mx-auto border rounded-lg divide-y bg-gray-50/50">
-                {statements.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => {
-                      setCurrentId(s.id);
-                      navigate(s.tier ? `/dashboard/${s.id}` : `/review/${s.id}`);
-                    }}
-                    className="w-full p-3 text-left hover:bg-blue-50/50 flex items-center justify-between text-xs transition-colors"
-                  >
-                    <div className="truncate mr-2">
-                      <span className="font-semibold text-gray-800">#{s.id}: {s.original_filename}</span>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{s.transaction_count || 0} txns · {s.tier || s.status}</p>
-                    </div>
-                    <span className="text-blue-600 font-semibold shrink-0">{s.tier ? "Open Dashboard →" : "Review →"}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <Link
-              to="/"
-              className="inline-flex items-center gap-2 px-4 py-2 border rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <Upload className="w-3.5 h-3.5" /> Upload New Statement
-            </Link>
-          </div>
+      <div className="animate-fade-in">
+        <PageHeader
+          eyebrow={<Badge tone="info" dot>Step 3 · Decision</Badge>}
+          title="Risk Dashboard"
+          description="The scored view of a case: why it was flagged, which rules fired and the transactions behind them."
+        />
+        <div className="p-4 sm:p-6">
+          <EmptyState
+            icon={LayoutDashboard}
+            title={effectiveId ? `Case #${effectiveId} has not been analysed` : "No case selected"}
+            description={
+              effectiveId
+                ? "Confirm the column mapping in Extraction Review to run the detection pipeline for this statement."
+                : "Select a case below or upload a new statement to begin."
+            }
+            actions={
+              effectiveId ? (
+                <Button
+                  variant="primary"
+                  size="md"
+                  icon={ArrowRight}
+                  onClick={() => navigate(`/review/${effectiveId}`)}
+                >
+                  Review & analyse
+                </Button>
+              ) : (
+                <LinkButton to="/" variant="primary" size="md" icon={Upload}>
+                  Go to upload
+                </LinkButton>
+              )
+            }
+          >
+            {statements.length > 0 && (
+              <>
+                <p className="label-micro mb-2">Available cases</p>
+                <div className="divide-y divide-ink-100 overflow-hidden rounded-lg border border-ink-100 bg-white">
+                  {statements.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        setCurrentId(s.id);
+                        navigate(s.tier ? `/dashboard/${s.id}` : `/review/${s.id}`);
+                      }}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-brand-50/60"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-medium text-ink-800">
+                          #{s.id} · {s.original_filename}
+                        </span>
+                        <span className="num text-[11px] text-ink-400">
+                          {s.transaction_count || 0} transactions
+                        </span>
+                      </span>
+                      <TierBadge tier={s.tier} score={s.fused_score} />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </EmptyState>
         </div>
       </div>
     );
   }
 
-  const features = bundle?.features || [];
+  const features = (bundle?.features || []) as FeatureRow[];
   const rules = bundle?.triggered_rules || [];
   const decision = bundle?.final_decision || {};
   const cycles = bundle?.cycles_detected || [];
   const summary = bundle?.account_summary || {};
   const tier = (decision.tier as string) || "REVIEW_REQUIRED";
-  const score = (decision.fused_score as number) || 0;
+  const period = summary.observed_period as { start?: string; end?: string } | undefined;
 
-  const chartData = features
-    .filter((f) => typeof f.value === "number")
-    .slice(0, 10)
-    .map((f) => ({ name: f.name, value: f.value as number, family: f.family }));
-
-  const anomaly = bundle?.anomaly_detail || null;
-  const madFeatures = (anomaly?.mad_flagged_features as Record<string, number>) || {};
-  const madCount = Object.keys(madFeatures).length;
-  const ruleScoreNum = typeof decision.rule_score === "number" ? decision.rule_score : (rules.reduce((acc, r) => acc + ((r.points as number) || 0), 0));
-  const anomalyScorePct = typeof decision.anomaly_score === "number" 
-    ? (decision.anomaly_score * 100) 
-    : (features.length > 0 ? (madCount / Math.max(features.length, 1)) * 100 : 0);
-
-  const decisionReason = (decision.decision_reason as string) || (
-    tier === "CONFIRMED_SUSPICIOUS"
-      ? `Fused risk score (${score.toFixed(1)} >= 75) with active regulatory fraud rules triggered.`
-      : tier === "LIKELY_LEGITIMATE"
-      ? `Fused score (${score.toFixed(1)} <= 25) with 0 severe rules triggered and normal anomaly sub-score (${anomalyScorePct.toFixed(1)}% < 30%).`
-      : rules.length === 0 && score <= 25
-      ? `0 deterministic rules triggered (Rule Score: 0.0), but statistical anomaly sub-score (${anomalyScorePct.toFixed(1)}%) exceeded the strict auto-clear threshold (< 30.0%). Conservative AML policy requires human sign-off.`
-      : `Ambiguous risk score (${score.toFixed(1)} / 100) requiring investigator verification.`
-  );
+  // Rule points are directly comparable, so this chart is meaningful as-is.
+  const ruleChart = [...rules]
+    .map((r) => ({
+      name: String(r.id).replace(/^R\d+_/, ""),
+      points: Number(r.points) || 0,
+      id: String(r.id),
+    }))
+    .sort((a, b) => b.points - a.points);
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Mule Detection Dashboard</h1>
-            <span className="text-xs bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded">
-              Statement #{effectiveId}
-            </span>
-          </div>
-          <p className="text-gray-500 text-xs sm:text-sm mt-1">
-            {summary.original_filename as string || "Bank Statement"} · {summary.transaction_count as number} transactions analyzed
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            to={`/graph/${effectiveId}`}
-            className="px-3.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium hover:bg-gray-50 flex items-center gap-1.5 shadow-sm transition-colors"
-          >
-            <GitGraph className="w-3.5 h-3.5 text-purple-600" /> Proof Graph
-          </Link>
-          <Link
-            to={`/evidence/${effectiveId}`}
-            className="px-3.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium hover:bg-gray-50 flex items-center gap-1.5 shadow-sm transition-colors"
-          >
-            <Search className="w-3.5 h-3.5 text-blue-600" /> Evidence Bundle
-          </Link>
-          <Link
-            to={`/review/${effectiveId}`}
-            className="px-3.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium hover:bg-gray-50 flex items-center gap-1.5 shadow-sm transition-colors"
-          >
-            <FileText className="w-3.5 h-3.5 text-gray-600" /> Column Mapping
-          </Link>
-        </div>
-      </div>
+    <div className="animate-fade-in">
+      <PageHeader
+        eyebrow={
+          <>
+            <Badge tone="info" dot>Step 3 · Decision</Badge>
+            <Badge tone="neutral" mono>CASE #{effectiveId}</Badge>
+            <TierBadge tier={tier} score={decision.fused_score as number} />
+          </>
+        }
+        title="Risk Dashboard"
+        description={
+          currentStatement?.original_filename
+            ? `Scored view of ${currentStatement.original_filename}.`
+            : "Scored view of the selected statement."
+        }
+        meta={
+          <>
+            <MetaItem label="Transactions" value={(summary.transaction_count as number) ?? "—"} icon={Database} />
+            {period?.start && (
+              <MetaItem
+                label="Period"
+                value={`${formatDate(period.start)} – ${formatDate(period.end || null)}`}
+                icon={Calendar}
+              />
+            )}
+            <MetaItem label="Rules fired" value={rules.length} icon={ShieldAlert} />
+            <MetaItem label="Cycles" value={cycles.length} icon={Repeat} />
+          </>
+        }
+        actions={
+          <>
+            <LinkButton to={`/evidence/${effectiveId}`} icon={Search}>
+              Evidence
+            </LinkButton>
+            <LinkButton to={`/graph/${effectiveId}`} icon={GitGraph}>
+              Proof graph
+            </LinkButton>
+            <LinkButton to={`/review/${effectiveId}`} icon={FileText}>
+              Mapping
+            </LinkButton>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1 space-y-3">
-          <div className="bg-white border rounded-xl p-4 shadow-sm text-center">
-            <RiskGauge score={score} tier={tier as "CONFIRMED_SUSPICIOUS" | "REVIEW_REQUIRED" | "LIKELY_LEGITIMATE"} />
-            <div className="mt-2 text-xs text-gray-400 font-mono">{decision.score_formula_used as string}</div>
-            
-            <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t text-left">
-              <div className="p-2 bg-gray-50 rounded border">
-                <span className="text-[10px] uppercase font-semibold text-gray-400 block">Rule Score</span>
-                <span className="text-xs font-bold text-gray-800">{ruleScoreNum.toFixed(1)} pts</span>
-                <span className="text-[10px] text-gray-500 block">65% weight</span>
+      <div className="mx-auto max-w-[1400px] space-y-5 p-4 sm:p-6">
+        {whyFlagged && <WhyFlaggedPanel data={whyFlagged} statementId={effectiveId as number} />}
+
+        <div className="grid gap-5 lg:grid-cols-3">
+          <div className="space-y-5 lg:col-span-1">
+            <Card>
+              <CardHeader
+                title="Triggered rules"
+                description="Deterministic AML rules that breached their threshold."
+                icon={ShieldAlert}
+                actions={<Badge tone={rules.length ? "danger" : "success"}>{rules.length} fired</Badge>}
+              />
+              <div className="p-4">
+                <RuleTriggerList rules={rules as any[]} />
               </div>
-              <div className="p-2 bg-gray-50 rounded border">
-                <span className="text-[10px] uppercase font-semibold text-gray-400 block">Anomaly Sub-Score</span>
-                <span className={`text-xs font-bold ${anomalyScorePct >= 30 ? "text-amber-700" : "text-green-700"}`}>
-                  {anomalyScorePct.toFixed(1)}%
-                </span>
-                <span className="text-[10px] text-gray-500 block">&lt; 30% to auto-clear</span>
-              </div>
-            </div>
-          </div>
+            </Card>
 
-          <div className={`p-3 rounded-xl border text-xs shadow-sm ${
-            tier === "CONFIRMED_SUSPICIOUS" 
-              ? "bg-red-50/80 border-red-200 text-red-800" 
-              : tier === "LIKELY_LEGITIMATE" 
-              ? "bg-green-50/80 border-green-200 text-green-800" 
-              : "bg-amber-50/80 border-amber-200 text-amber-800"
-          }`}>
-            <div className="font-semibold mb-1 flex items-center justify-between">
-              <span>Decision Policy Rationale</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/70">{tier}</span>
-            </div>
-            <p className="text-[11px] leading-relaxed">{decisionReason}</p>
-          </div>
-        </div>
-        <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-          {features.slice(0, 8).map((f) => (
-            <MetricCard
-              key={f.name as string}
-              title={f.name as string}
-              value={f.value != null ? (typeof f.value === "number" ? f.value.toFixed(2) : String(f.value)) : "N/A"}
-              formula={f.formula as string}
-              explanation={f.explanation as string}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
-          <h3 className="font-semibold text-sm mb-3">Triggered Rules</h3>
-          <RuleTriggerList rules={rules as any[]} />
-          {cycles.length > 0 && (
-            <div className="mt-4">
-              <h4 className="font-semibold text-sm mb-2">Detected Cycles</h4>
-              {cycles.map((c) => (
-                <div key={c.cycle_id as string} className="border border-purple-200 bg-purple-50 rounded-lg p-3 mb-2">
-                  <div className="font-mono text-xs font-bold text-purple-700">{c.cycle_id as string}</div>
-                  <div className="text-sm">{c.hop_count as number}-hop cycle</div>
-                  <div className="text-xs text-gray-500">Risk: {c.cycle_risk_score != null ? ((c.cycle_risk_score as number) * 100).toFixed(0) : "N/A"}%</div>
+            {cycles.length > 0 && (
+              <Card>
+                <CardHeader
+                  title="Detected cycles"
+                  description="Closed fund loops found in the transaction graph."
+                  icon={Repeat}
+                  actions={<Badge tone="accent">{cycles.length}</Badge>}
+                />
+                <div className="space-y-2 p-4">
+                  {cycles.map((c) => (
+                    <div
+                      key={c.cycle_id as string}
+                      className="rounded-lg border border-violet-200 bg-violet-50/60 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[11px] font-bold text-violet-800">
+                          {c.cycle_id as string}
+                        </span>
+                        <Badge tone="accent">
+                          risk{" "}
+                          {c.cycle_risk_score != null
+                            ? `${((c.cycle_risk_score as number) * 100).toFixed(0)}%`
+                            : "—"}
+                        </Badge>
+                      </div>
+                      <p className="num mt-1 text-[12px] text-ink-700">
+                        {c.hop_count as number}-hop loop
+                      </p>
+                      <LinkButton
+                        to={`/graph/${effectiveId}?focus=${encodeURIComponent(`CYC_${c.cycle_id as string}`)}`}
+                        icon={GitGraph}
+                        className="mt-2 border-violet-200 text-violet-700 hover:bg-violet-100"
+                      >
+                        View in Proof Graph
+                      </LinkButton>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="lg:col-span-2 space-y-4">
-          {chartData.length > 0 && (
-            <div className="bg-white border rounded-xl p-4 shadow-sm">
-              <h3 className="font-semibold text-sm mb-3">Feature Distribution</h3>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={chartData}>
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#3b82f6" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+              </Card>
+            )}
+          </div>
 
-          {narrative && narrative.text && (
-            <NarrativePanel
-              text={narrative.text}
-              source={narrative.source as "ai" | "template"}
+          <div className="space-y-5 lg:col-span-2">
+            {ruleChart.length > 0 && (
+              <Card>
+                <CardHeader
+                  title="Rule contribution"
+                  description="Points each breached rule added to the deterministic rule score."
+                  icon={SlidersHorizontal}
+                />
+                <div className="p-4">
+                  <ResponsiveContainer width="100%" height={Math.max(ruleChart.length * 42, 120)}>
+                    <BarChart data={ruleChart} layout="vertical" margin={{ left: 8, right: 24 }}>
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 10, fill: "#64748B" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={150}
+                        tick={{ fontSize: 10, fill: "#475569" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip
+                        cursor={{ fill: "rgba(15,23,42,0.04)" }}
+                        contentStyle={{
+                          borderRadius: 8,
+                          border: "1px solid #E2E8F0",
+                          fontSize: 12,
+                          boxShadow: "0 8px 24px -6px rgb(15 23 42 / 0.14)",
+                        }}
+                        formatter={(v: number) => [`${v} points`, "Contribution"]}
+                      />
+                      <Bar dataKey="points" radius={[0, 4, 4, 0]} barSize={16}>
+                        {ruleChart.map((r) => (
+                          <Cell
+                            key={r.id}
+                            fill={r.points >= 25 ? "#DC2626" : r.points >= 20 ? "#EA580C" : "#D97706"}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
+            )}
+
+            {narrative && narrative.text && (
+              <NarrativePanel text={narrative.text} source={narrative.source as "ai" | "template"} />
+            )}
+          </div>
+        </div>
+
+        {features.length > 0 && (
+          <Card>
+            <CardHeader
+              title={`Account fingerprint (${features.length} features)`}
+              description="Every deterministic feature the scorer computed, grouped by family. Ratios are shown as bars; hover for the formula."
+              icon={SlidersHorizontal}
             />
-          )}
-        </div>
-      </div>
+            <div className="p-4 sm:p-5">
+              <FeatureGrid features={features} />
+            </div>
+          </Card>
+        )}
 
-      <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-        <div className="border-b px-4 py-3 font-semibold text-sm text-gray-800 flex items-center justify-between">
-          <span>Transaction Audit Table</span>
-          <span className="text-xs font-normal text-gray-500">{transactions.total} total rows</span>
-        </div>
-        <TransactionTable
-          rows={transactions.rows as any[]}
-          total={transactions.total}
-          page={page}
-          pageSize={100}
-          onPageChange={setPage}
-        />
+        <Card>
+          <CardHeader
+            title="Transaction audit table"
+            description="Every parsed row, with rule and cycle tags applied by the analysis."
+            icon={Table2}
+            actions={<Badge tone="neutral">{transactions.total} rows</Badge>}
+          />
+          <TransactionTable
+            rows={transactions.rows as any[]}
+            total={transactions.total}
+            page={page}
+            pageSize={100}
+            onPageChange={setPage}
+          />
+        </Card>
       </div>
     </div>
   );

@@ -85,6 +85,60 @@ def _resolve_threshold(token: str, feature_values: dict[str, Any]) -> float:
         return 0.0
 
 
+_CONDITION_OPERATORS = (" >= ", " <= ", " > ", " < ", " == ")
+
+
+def parse_condition_clauses(
+    condition_str: str, feature_values: dict[str, Any]
+) -> dict[str, Any]:
+    """Break a rule condition into per-clause evidence.
+
+    Returns the joiner plus, for every clause, the feature it reads, the operator,
+    the resolved threshold and the account's actual value — so the UI can show
+    "net_retention_ratio (0.04) < 0.15" instead of a bare rule name.
+    """
+    condition_str = (condition_str or "").strip()
+    if not condition_str:
+        return {"joiner": "AND", "clauses": []}
+
+    joiner = "AND" if " AND " in condition_str else ("OR" if " OR " in condition_str else "AND")
+    parts = condition_str.split(f" {joiner} ") if f" {joiner} " in condition_str else [condition_str]
+
+    clauses: list[dict[str, Any]] = []
+    for part in parts:
+        part = part.strip()
+        parsed = False
+        for op in _CONDITION_OPERATORS:
+            if op in part:
+                field, token = part.split(op, 1)
+                field = field.strip()
+                token = token.strip()
+                actual = feature_values.get(field)
+                clauses.append({
+                    "expression": part,
+                    "field": field,
+                    "operator": op.strip(),
+                    "threshold_expression": token,
+                    "threshold_value": _resolve_threshold(token, feature_values),
+                    "actual_value": float(actual) if isinstance(actual, (int, float)) else None,
+                    "holds": _evaluate_single_condition(part, feature_values),
+                })
+                parsed = True
+                break
+        if not parsed:
+            clauses.append({
+                "expression": part,
+                "field": None,
+                "operator": None,
+                "threshold_expression": None,
+                "threshold_value": None,
+                "actual_value": None,
+                "holds": None,
+            })
+
+    return {"joiner": joiner, "clauses": clauses}
+
+
 def evaluate_rules(feature_values: dict[str, Any]) -> tuple[float, list[dict[str, Any]]]:
     cfg = load_config("thresholds")
     rules_cfg = cfg.get("rules", {})

@@ -45,6 +45,14 @@ cycle:
   max_cycle_length: 6
   dense_component_edge_cap: 1000
   min_cycle_risk_score: 0.6
+pattern_timeline:
+  layering_max_hold_days: 1
+  layering_min_amount_match: 0.6
+  structuring_min_transactions: 2
+  min_pattern_risk: 0.5
+  rapid_hop_hours: 24
+  max_layering_chains: 10
+  max_patterns: 25
 cycle_risk_weights:
   amount_conservation: 0.35
   velocity_compression: 0.3

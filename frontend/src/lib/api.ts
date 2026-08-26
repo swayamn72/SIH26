@@ -54,6 +54,176 @@ export type GraphData = {
   mule_nodes?: string[];
 };
 
+export type PatternSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+
+export type PatternHop = {
+  step: number;
+  row_id: string;
+  txn_id: string;
+  timestamp: string | null;
+  value_date: string | null;
+  from_id: string;
+  from_label: string;
+  to_id: string;
+  to_label: string;
+  direction: "debit" | "credit";
+  amount: number;
+  channel: string;
+  narration: string;
+  gap_hours: number | null;
+  near_threshold: boolean;
+  near_threshold_band: number | null;
+  is_rapid: boolean;
+  risk_score: number;
+  severity: PatternSeverity;
+};
+
+export type PatternNode = {
+  id: string;
+  label: string;
+  is_subject: boolean;
+  is_return?: boolean;
+};
+
+export type SuspiciousPattern = {
+  pattern_id: string;
+  kind: "cycle" | "layering" | "structuring" | "dormancy_burst";
+  title: string;
+  summary: string;
+  formula: string;
+  hop_risk_formula: string;
+  risk_score: number;
+  severity: PatternSeverity;
+  hop_count: number;
+  total_amount: number;
+  span_days: number;
+  started_at: string | null;
+  ended_at: string | null;
+  node_path: PatternNode[];
+  hops: PatternHop[];
+  row_ids: string[];
+  node_ids: string[];
+  linked_rule_ids: string[];
+  rule_points: number;
+  metrics: Record<string, number | null>;
+  truncation_note?: string;
+};
+
+export type RuleClause = {
+  expression: string;
+  field: string | null;
+  operator: string | null;
+  threshold_expression: string | null;
+  threshold_value: number | null;
+  actual_value: number | null;
+  holds: boolean | null;
+};
+
+export type ReasonRule = {
+  id: string;
+  description: string;
+  condition: string;
+  points: number;
+  joiner: string;
+  clauses: RuleClause[];
+  contribution_pct: number;
+};
+
+export type ReasonFeature = {
+  name: string;
+  value: number | string | null;
+  formula: string;
+  explanation: string;
+  family?: string;
+  threshold_value?: number | null;
+  operator?: string | null;
+  rule_id?: string;
+};
+
+export type ReasonTransaction = {
+  row_id: string;
+  txn_id: string;
+  timestamp: string | null;
+  counterparty: string;
+  counterparty_id: string;
+  amount: number;
+  direction: "debit" | "credit";
+  channel: string;
+  narration: string;
+};
+
+export type ReasonCounterparty = {
+  counterparty_id: string;
+  counterparty: string;
+  transaction_count: number;
+  total_amount: number;
+  inflow: number;
+  outflow: number;
+  patterns: string[];
+};
+
+export type FlagReason = {
+  id: string;
+  title: string;
+  category: string;
+  severity: PatternSeverity;
+  headline: string;
+  detail: string;
+  how_computed: string;
+  metrics: { label: string; value: string | number }[];
+  rules: ReasonRule[];
+  rule_points: number;
+  contribution_pct: number;
+  is_score_driver: boolean;
+  features: ReasonFeature[];
+  transactions: ReasonTransaction[];
+  transactions_withheld: number;
+  counterparties?: ReasonCounterparty[];
+  counterparties_withheld?: number;
+  deviations?: { name: string; value: number; formula: string; explanation: string }[];
+  pattern_ids: string[];
+  graph_pattern_id: string | null;
+};
+
+export type WhyFlagged = {
+  statement_id: number;
+  tier: string;
+  risk_score: number;
+  risk_level: "HIGH" | "MEDIUM" | "LOW";
+  risk_level_emoji: string;
+  thresholds: { likely_legitimate_max: number; confirmed_suspicious_min: number };
+  decision_reason: string;
+  score_formula: string;
+  score_breakdown: {
+    component: string;
+    weight: number;
+    raw_value: number | null;
+    points_of_fused: number;
+  }[];
+  confidence: {
+    score: number;
+    formula: string;
+    components: { name: string; value: number; weight: number; description: string }[];
+    detector_agreement: { detector: string; flagged: boolean; agrees: boolean }[];
+  };
+  reasons: FlagReason[];
+  evidence_coverage: {
+    transactions_examined: number;
+    counterparties_seen: number;
+    patterns_detected: number;
+    rules_evaluated: number;
+    rules_triggered: number;
+    features_computed: number;
+  };
+};
+
+export type PatternsResponse = {
+  statement_id: number;
+  subject_node_id: string;
+  subject_label: string;
+  patterns: SuspiciousPattern[];
+};
+
 export type StatementItem = {
   id: number;
   original_filename: string | null;
@@ -115,6 +285,10 @@ export const api = {
   },
 
   getGraph: (id: number) => request<GraphData>(`/statements/${id}/graph`),
+
+  getPatterns: (id: number) => request<PatternsResponse>(`/statements/${id}/patterns`),
+
+  getWhyFlagged: (id: number) => request<WhyFlagged>(`/statements/${id}/why-flagged`),
 
   getNarrative: async (id: number) => {
     const res = await request<{ statement_id: number; narrative: string; source: string }>(`/statements/${id}/narrative`);

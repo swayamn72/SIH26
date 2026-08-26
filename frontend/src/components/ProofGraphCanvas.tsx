@@ -11,6 +11,9 @@ type ProofGraphCanvasProps = {
   cycles: CycleInfo[];
   muleRowIds?: string[];
   muleNodes?: string[];
+  /** Rows/nodes of a pattern opened from the evidence timeline — everything else is dimmed. */
+  focusRowIds?: string[];
+  focusNodeIds?: string[];
   selectedNode?: string | null;
   selectedEdge?: string | null;
   onNodeClick?: (nodeId: string) => void;
@@ -23,6 +26,8 @@ export function ProofGraphCanvas({
   cycles,
   muleRowIds = [],
   muleNodes = [],
+  focusRowIds = [],
+  focusNodeIds = [],
   selectedNode,
   selectedEdge,
   onNodeClick,
@@ -83,8 +88,8 @@ export function ProofGraphCanvas({
           nodeClass = "node-mule";
         }
 
-        const baseSize = isAcct ? 150 : 80;
-        const size = baseSize + (flowVal / maxFlow) * (isAcct ? 24 : 18);
+        const baseSize = isAcct ? 92 : 56;
+        const size = baseSize + (flowVal / maxFlow) * (isAcct ? 20 : 16);
 
         return {
           data: { id: n.id, label: n.label, flow: flowVal },
@@ -126,25 +131,30 @@ export function ProofGraphCanvas({
           selector: "node",
           style: {
             label: "data(label)",
-            "text-valign": "center",
+            // Labels sit under the node with a white halo: readable at any zoom,
+            // and it lets the nodes themselves stay small and uncluttered.
+            "text-valign": "bottom",
             "text-halign": "center",
-            color: "#ffffff",
-            "font-size": "20px",
-            "font-weight": "bold",
+            "text-margin-y": 6,
+            color: "#1E2E4A",
+            "font-size": "11px",
+            "font-weight": 600,
             "font-family": "Inter, system-ui, sans-serif",
-            "text-outline-width": 1.5,
-            "text-outline-color": "rgba(0, 0, 0, 0.5)",
+            "text-outline-width": 3,
+            "text-outline-color": "#ffffff",
+            "text-wrap": "ellipsis",
+            "text-max-width": "120px",
           },
         },
         // 🟣 Account Node: Purple
         {
           selector: "node.node-account",
           style: {
-            "background-color": "#8b5cf6",
-            "border-width": 4,
-            "border-color": "#6d28d9",
-            "font-weight": "bold",
-            "font-size": "25px",
+            "background-color": "#7C3AED",
+            "border-width": 3,
+            "border-color": "#5B21B6",
+            "font-weight": 700,
+            "font-size": "12px",
             "z-index": 100,
           },
         },
@@ -152,11 +162,11 @@ export function ProofGraphCanvas({
         {
           selector: "node.node-mule",
           style: {
-            "background-color": "#ef4444",
-            "border-width": 4,
-            "border-color": "#b91c1c",
-            "font-weight": "bold",
-            "font-size": "20px",
+            "background-color": "#DC2626",
+            "border-width": 3,
+            "border-color": "#991B1B",
+            "font-weight": 600,
+            "font-size": "11px",
             "z-index": 90,
           },
         },
@@ -164,10 +174,10 @@ export function ProofGraphCanvas({
         {
           selector: "node.node-regular",
           style: {
-            "background-color": "#3b82f6",
+            "background-color": "#2563EB",
             "border-width": 2,
-            "border-color": "#1d4ed8",
-            "font-size": "20px",
+            "border-color": "#1D4ED8",
+            "font-size": "11px",
             "z-index": 10,
           },
         },
@@ -176,7 +186,7 @@ export function ProofGraphCanvas({
           selector: "node:selected",
           style: {
             "border-width": 5,
-            "border-color": "#f59e0b",
+            "border-color": "#F59E0B",
             "border-opacity": 1,
           },
         },
@@ -192,12 +202,12 @@ export function ProofGraphCanvas({
         {
           selector: "edge.edge-regular",
           style: {
-            width: 1.5,
-            "line-color": "#64748b",
-            "target-arrow-color": "#64748b",
+            width: 1.2,
+            "line-color": "#94A3B8",
+            "target-arrow-color": "#94A3B8",
             "target-arrow-shape": "triangle",
-            "arrow-scale": 0.85,
-            opacity: 0.85,
+            "arrow-scale": 0.8,
+            opacity: 0.8,
             "z-index": 1,
           },
         },
@@ -205,9 +215,9 @@ export function ProofGraphCanvas({
         {
           selector: "edge.edge-mule",
           style: {
-            width: 3.5,
-            "line-color": "#ef4444",
-            "target-arrow-color": "#ef4444",
+            width: 3,
+            "line-color": "#DC2626",
+            "target-arrow-color": "#DC2626",
             "target-arrow-shape": "triangle",
             "arrow-scale": 1.2,
             opacity: 1.0,
@@ -226,6 +236,35 @@ export function ProofGraphCanvas({
             "z-index": 999,
           },
         },
+        // Timeline focus: everything outside the opened pattern fades back
+        {
+          selector: ".focus-dim",
+          style: {
+            opacity: 0.08,
+            "text-opacity": 0.08,
+            "z-index": 0,
+          },
+        },
+        {
+          selector: "node.focus-hit",
+          style: {
+            "border-width": 6,
+            "border-color": "#f59e0b",
+            "border-opacity": 1,
+            "z-index": 900,
+          },
+        },
+        {
+          selector: "edge.focus-hit",
+          style: {
+            width: 5,
+            "line-color": "#f59e0b",
+            "target-arrow-color": "#f59e0b",
+            "arrow-scale": 1.4,
+            opacity: 1.0,
+            "z-index": 950,
+          },
+        },
       ],
       layout: {
         name: "concentric",
@@ -241,6 +280,8 @@ export function ProofGraphCanvas({
       },
       userZoomingEnabled: true,
       userPanningEnabled: true,
+      // Keeps fit-to-pattern from magnifying a two-node chain past readability.
+      maxZoom: 1.5,
     });
 
     cyRef.current.on("tap", "node", (evt) => {
@@ -279,6 +320,35 @@ export function ProofGraphCanvas({
       cyRef.current = null;
     };
   }, [nodes, edges, cycles, muleRowIds, muleNodes]);
+
+  // Highlight the pattern opened from the evidence timeline and zoom to it.
+  const focusRowKey = focusRowIds.join(",");
+  const focusNodeKey = focusNodeIds.join(",");
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    const rowSet = new Set(focusRowKey ? focusRowKey.split(",") : []);
+    const nodeSet = new Set(focusNodeKey ? focusNodeKey.split(",") : []);
+
+    cy.elements().removeClass("focus-dim focus-hit");
+    if (rowSet.size === 0 && nodeSet.size === 0) {
+      // Focus cleared - return to the whole network rather than staying zoomed in.
+      cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 300 });
+      return;
+    }
+
+    const focusEdges = cy.edges().filter((e) => rowSet.has(String(e.data("row_id"))));
+    const focused = focusEdges
+      .union(cy.nodes().filter((n) => nodeSet.has(n.id())))
+      .union(focusEdges.connectedNodes());
+
+    if (focused.length === 0) return;
+
+    cy.elements().not(focused).addClass("focus-dim");
+    focused.addClass("focus-hit");
+    cy.animate({ fit: { eles: focused, padding: 60 } }, { duration: 400 });
+  }, [focusRowKey, focusNodeKey, nodes, edges]);
 
   // Sync selected state into Cytoscape without re-running layout
   useEffect(() => {
@@ -324,33 +394,38 @@ export function ProofGraphCanvas({
   };
 
   return (
-    <div className="relative w-full h-full min-h-[350px]">
-      <div ref={containerRef} className="w-full h-full" />
-      {/* Floating Canvas Controls for Responsive Touch & Desktop Access */}
-      <div className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-white/90 backdrop-blur border border-gray-200 rounded-lg p-1 shadow-md z-10">
+    <div className="relative h-full min-h-[350px] w-full bg-[radial-gradient(circle_at_1px_1px,rgb(203_213_225/0.55)_1px,transparent_0)] [background-size:22px_22px]">
+      <div ref={containerRef} className="h-full w-full" />
+
+      {/* Floating canvas controls */}
+      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-0.5 rounded-lg border border-ink-200 bg-white/95 p-1 shadow-raised backdrop-blur">
         <button
           onClick={handleZoomIn}
-          title="Zoom In"
-          className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors text-xs font-bold"
+          title="Zoom in"
+          className="h-7 w-7 rounded-md text-sm font-bold text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-900"
         >
           +
         </button>
         <button
           onClick={handleZoomOut}
-          title="Zoom Out"
-          className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors text-xs font-bold"
+          title="Zoom out"
+          className="h-7 w-7 rounded-md text-sm font-bold text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-900"
         >
           −
         </button>
-        <div className="w-px h-4 bg-gray-200" />
+        <span className="mx-0.5 h-4 w-px bg-ink-200" />
         <button
           onClick={handleFit}
-          title="Fit to Screen"
-          className="px-2 py-1 text-[11px] text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded font-medium transition-colors"
+          title="Fit graph to screen"
+          className="h-7 rounded-md px-2 text-[11px] font-medium text-ink-500 transition-colors hover:bg-ink-100 hover:text-ink-900"
         >
           Fit
         </button>
       </div>
+
+      <p className="pointer-events-none absolute bottom-4 left-4 z-10 text-[10px] font-medium text-ink-400">
+        Scroll to zoom · drag to pan · click a node or edge for detail
+      </p>
     </div>
   );
 }

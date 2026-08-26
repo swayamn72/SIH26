@@ -1,9 +1,35 @@
-import { useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
-import { GitGraph, LayoutDashboard, Search, Upload, ArrowRight } from "lucide-react";
-import { api, GraphData } from "../lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  GitGraph,
+  LayoutDashboard,
+  Search,
+  Upload,
+  ArrowRight,
+  Crosshair,
+  X,
+  Clock,
+  Layers,
+  Network,
+  Repeat,
+} from "lucide-react";
+import { api, GraphData, SuspiciousPattern } from "../lib/api";
 import { ProofGraphCanvas } from "../components/ProofGraphCanvas";
 import { useStatement } from "../lib/StatementContext";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  LinkButton,
+  LoadingPanel,
+  MetaItem,
+  PageHeader,
+  SeverityBadge,
+  TierBadge,
+  money,
+} from "../components/ui";
 
 export function ProofGraphPage() {
   const { id } = useParams<{ id: string }>();
@@ -12,11 +38,25 @@ export function ProofGraphPage() {
 
   const effectiveId = id ? Number(id) : currentId;
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusId = searchParams.get("focus");
+
   const [graph, setGraph] = useState<GraphData | null>(null);
+  const [patterns, setPatterns] = useState<SuspiciousPattern[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [mode, setMode] = useState<"single" | "merged">("single");
+
+  const setFocus = (patternId: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (patternId) {
+      next.set("focus", patternId);
+    } else {
+      next.delete("focus");
+    }
+    setSearchParams(next, { replace: true });
+  };
 
   useEffect(() => {
     if (id && Number(id) !== currentId) {
@@ -29,7 +69,8 @@ export function ProofGraphPage() {
       const ids = statements.map((s) => s.id);
       if (ids.length >= 2) {
         setLoading(true);
-        api.batchMerge(ids)
+        api
+          .batchMerge(ids)
           .then(setGraph)
           .catch(() => setGraph(null))
           .finally(() => setLoading(false));
@@ -42,222 +83,357 @@ export function ProofGraphPage() {
       return;
     }
     setLoading(true);
-    api.getGraph(effectiveId)
+    api
+      .getGraph(effectiveId)
       .then(setGraph)
       .catch(() => setGraph(null))
       .finally(() => setLoading(false));
   }, [effectiveId, mode, statements]);
 
-  if (loading) return (
-    <div className="p-8 flex items-center gap-3 text-gray-500">
-      <GitGraph className="w-5 h-5 animate-pulse text-purple-600" /> Loading transaction graph...
-    </div>
+  // Pattern timelines back the "View in Proof Graph" deep links (?focus=<pattern_id>).
+  useEffect(() => {
+    if (!effectiveId || mode === "merged") {
+      setPatterns([]);
+      return;
+    }
+    api
+      .getPatterns(effectiveId)
+      .then((res) => setPatterns(res.patterns || []))
+      .catch(() => setPatterns([]));
+  }, [effectiveId, mode]);
+
+  const focusPattern = useMemo(
+    () => patterns.find((p) => p.pattern_id === focusId) || null,
+    [patterns, focusId],
   );
+
+  if (loading) return <LoadingPanel label="Loading transaction graph" />;
 
   if (!effectiveId || !graph) {
     return (
-      <div className="p-4 sm:p-6 max-w-4xl mx-auto">
-        <div className="bg-white border rounded-xl p-6 sm:p-8 text-center shadow-sm space-y-4">
-          <GitGraph className="w-12 h-12 mx-auto text-gray-400" />
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">
-              {!effectiveId ? "No Statement Selected" : `Transaction Graph Not Available for Statement #${effectiveId}`}
-            </h2>
-            <p className="text-sm text-gray-500 mt-1">
-              {!effectiveId
-                ? "Select a statement from history or upload a new statement."
-                : "Confirm the extraction and run analysis first to build the transaction graph."}
-            </p>
-          </div>
-
-          {effectiveId && (
-            <div>
-              <button
-                onClick={() => navigate(`/review/${effectiveId}`)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm transition-colors"
-              >
-                Review & Confirm Extraction <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {statements.length > 0 && (
-            <div className="mt-6 pt-6 border-t text-left">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Available Statements</h3>
-              <div className="max-w-md mx-auto border rounded-lg divide-y bg-gray-50/50">
-                {statements.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => {
-                      setCurrentId(s.id);
-                      navigate(`/graph/${s.id}`);
-                    }}
-                    className="w-full p-3 text-left hover:bg-blue-50/50 flex items-center justify-between text-xs transition-colors"
-                  >
-                    <div className="truncate mr-2">
-                      <span className="font-semibold text-gray-800">#{s.id}: {s.original_filename}</span>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{s.transaction_count || 0} txns · {s.tier || s.status}</p>
-                    </div>
-                    <span className="text-purple-600 font-semibold shrink-0">View Graph →</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <Link
-              to="/"
-              className="inline-flex items-center gap-2 px-4 py-2 border rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <Upload className="w-3.5 h-3.5" /> Upload New Statement
-            </Link>
-          </div>
+      <div className="animate-fade-in">
+        <PageHeader
+          eyebrow={<Badge tone="info" dot>Step 5 · Network</Badge>}
+          title="Proof Graph"
+          description="The fund-flow network behind the case, with mule paths and circular flows highlighted."
+        />
+        <div className="p-4 sm:p-6">
+          <EmptyState
+            icon={GitGraph}
+            title={effectiveId ? `No graph for case #${effectiveId}` : "No case selected"}
+            description={
+              effectiveId
+                ? "Confirm the extraction and run analysis first to build the transaction graph."
+                : "Select a case below, or upload a new statement."
+            }
+            actions={
+              effectiveId ? (
+                <Button
+                  variant="primary"
+                  size="md"
+                  icon={ArrowRight}
+                  onClick={() => navigate(`/review/${effectiveId}`)}
+                >
+                  Review & analyse
+                </Button>
+              ) : (
+                <LinkButton to="/" variant="primary" size="md" icon={Upload}>
+                  Go to upload
+                </LinkButton>
+              )
+            }
+          >
+            {statements.length > 0 && (
+              <>
+                <p className="label-micro mb-2">Available cases</p>
+                <div className="divide-y divide-ink-100 overflow-hidden rounded-lg border border-ink-100 bg-white">
+                  {statements.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        setCurrentId(s.id);
+                        navigate(`/graph/${s.id}`);
+                      }}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-brand-50/60"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-medium text-ink-800">
+                          #{s.id} · {s.original_filename}
+                        </span>
+                        <span className="num text-[11px] text-ink-400">
+                          {s.transaction_count || 0} transactions
+                        </span>
+                      </span>
+                      <TierBadge tier={s.tier} score={s.fused_score} />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </EmptyState>
         </div>
       </div>
     );
   }
 
-  const subjectNode = graph.nodes.find((n) => n.id === "ACCT_SUBJECT");
+  const subjectNode = graph.nodes.find((n) => n.id.startsWith("ACCT_"));
   const selectedNodeData = graph.nodes.find((n) => n.id === selectedNode);
   const selectedEdgeData = graph.edges.find((e) => e.row_id === selectedEdge);
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Proof Graph</h1>
-            <span className="text-xs bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded">
-              Statement #{effectiveId}
-            </span>
-          </div>
-          <p className="text-gray-500 text-xs sm:text-sm mt-1">Interactive transaction flow network with cycle highlighting</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {mode === "single" ? (
-            <button onClick={() => setMode("merged")} className="px-3 py-1.5 text-xs font-medium border rounded-lg hover:bg-gray-50 bg-white shadow-sm transition-colors">
-              Merged View
-            </button>
-          ) : (
-            <button onClick={() => setMode("single")} className="px-3 py-1.5 text-xs font-medium border rounded-lg hover:bg-gray-50 bg-white shadow-sm transition-colors">
-              Single Account
-            </button>
-          )}
-          <Link
-            to={`/dashboard/${effectiveId}`}
-            className="px-3 py-1.5 text-xs font-medium border rounded-lg hover:bg-gray-50 bg-white flex items-center gap-1.5 shadow-sm transition-colors"
-          >
-            <LayoutDashboard className="w-3.5 h-3.5 text-blue-600" /> Dashboard
-          </Link>
-          <Link
-            to={`/evidence/${effectiveId}`}
-            className="px-3 py-1.5 text-xs font-medium border rounded-lg hover:bg-gray-50 bg-white flex items-center gap-1.5 shadow-sm transition-colors"
-          >
-            <Search className="w-3.5 h-3.5 text-blue-600" /> Evidence
-          </Link>
-        </div>
-      </div>
+    <div className="animate-fade-in">
+      <PageHeader
+        eyebrow={
+          <>
+            <Badge tone="info" dot>Step 5 · Network</Badge>
+            <Badge tone="neutral" mono>
+              {mode === "merged" ? "MERGED VIEW" : `CASE #${effectiveId}`}
+            </Badge>
+          </>
+        }
+        title="Proof Graph"
+        description="Interactive fund-flow network. Click any node or edge to inspect it; open a pattern to isolate its hops."
+        meta={
+          <>
+            <MetaItem label="Entities" value={graph.nodes.length} icon={Network} />
+            <MetaItem label="Transfers" value={graph.edges.length} icon={Layers} />
+            <MetaItem label="Circular flows" value={graph.cycles.length} icon={Repeat} />
+          </>
+        }
+        actions={
+          <>
+            {mode === "single" ? (
+              <Button icon={Layers} onClick={() => setMode("merged")}>
+                Merged view
+              </Button>
+            ) : (
+              <Button icon={Layers} onClick={() => setMode("single")}>
+                Single case
+              </Button>
+            )}
+            <LinkButton to={`/dashboard/${effectiveId}`} icon={LayoutDashboard}>
+              Dashboard
+            </LinkButton>
+            <LinkButton to={`/evidence/${effectiveId}`} icon={Search}>
+              Evidence
+            </LinkButton>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div className="lg:col-span-3">
-          <div className="bg-white border rounded-xl overflow-hidden shadow-sm h-[50vh] sm:h-[60vh] lg:h-[620px] min-h-[380px]">
-            <ProofGraphCanvas
-              nodes={graph.nodes}
-              edges={graph.edges}
-              cycles={graph.cycles}
-              muleRowIds={graph.mule_row_ids}
-              muleNodes={graph.mule_nodes}
-              selectedNode={selectedNode}
-              selectedEdge={selectedEdge}
-              onNodeClick={(nodeId) => {
-                setSelectedNode(nodeId);
-                setSelectedEdge(null);
-              }}
-              onEdgeClick={(edgeRowId) => {
-                setSelectedEdge(edgeRowId);
-                setSelectedNode(null);
-              }}
-            />
-          </div>
-        </div>
-        <div className="space-y-3">
-          <div className="bg-white border rounded-xl p-4 shadow-sm">
-            <h3 className="font-semibold text-sm text-gray-800 mb-2">Graph Summary</h3>
-            <div className="text-xs text-gray-600 space-y-1.5">
-              <p className="flex justify-between"><span>Entities (Nodes):</span> <strong>{graph.nodes.length}</strong></p>
-              <p className="flex justify-between"><span>Transfers (Edges):</span> <strong>{graph.edges.length}</strong></p>
-              <p className="flex justify-between"><span>Circular Flows:</span> <strong>{graph.cycles.length}</strong></p>
-              {subjectNode && typeof subjectNode.flow === "number" && (
-                <p className="flex justify-between">
-                  <span>Total Volume:</span> <strong>₹{subjectNode.flow.toFixed(2)}</strong>
-                </p>
+      <div className="mx-auto max-w-[1500px] space-y-4 p-4 sm:p-6">
+        {focusId && (
+          <Card
+            accent={focusPattern ? "warning" : undefined}
+            className={focusPattern ? "border-amber-200 bg-amber-50/60" : ""}
+          >
+            <div className="p-3.5">
+              {focusPattern ? (
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Crosshair className="h-4 w-4 shrink-0 text-amber-600" />
+                      <span className="text-[12px] font-bold uppercase tracking-wide text-amber-900">
+                        Focused on pattern
+                      </span>
+                      <span className="font-mono text-[10px] text-amber-700">
+                        {focusPattern.pattern_id}
+                      </span>
+                      <SeverityBadge
+                        severity={focusPattern.severity}
+                        suffix={` · risk ${(focusPattern.risk_score * 100).toFixed(0)}%`}
+                      />
+                    </div>
+                    <p className="mt-1.5 text-[14px] font-semibold text-ink-900">
+                      {focusPattern.title}
+                    </p>
+                    <p className="mt-0.5 font-mono text-[11px] text-ink-600">
+                      {focusPattern.node_path.map((n) => n.label).join(" → ")}
+                    </p>
+                    <p className="num mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-500">
+                      <Clock className="h-3 w-3" />
+                      {focusPattern.hops.length} highlighted transfers ·{" "}
+                      {money(focusPattern.total_amount)} · {focusPattern.span_days.toFixed(2)} days
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <LinkButton to={`/evidence/${effectiveId}`} icon={Search}>
+                      Back to timeline
+                    </LinkButton>
+                    <Button icon={X} onClick={() => setFocus(null)}>
+                      Clear focus
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-[12px] text-ink-500">
+                    Pattern <span className="font-mono">{focusId}</span>{" "}
+                    {patterns.length === 0
+                      ? "is still loading, or this case has no patterns."
+                      : "was not found in this case's patterns."}
+                  </p>
+                  <Button onClick={() => setFocus(null)}>Clear</Button>
+                </div>
               )}
             </div>
+          </Card>
+        )}
+
+        <div className="grid gap-4 lg:grid-cols-4">
+          <div className="lg:col-span-3">
+            <Card className="h-[52vh] min-h-[400px] sm:h-[62vh] lg:h-[640px]">
+              <ProofGraphCanvas
+                nodes={graph.nodes}
+                edges={graph.edges}
+                cycles={graph.cycles}
+                muleRowIds={graph.mule_row_ids}
+                muleNodes={graph.mule_nodes}
+                focusRowIds={focusPattern?.row_ids}
+                focusNodeIds={focusPattern?.node_ids}
+                selectedNode={selectedNode}
+                selectedEdge={selectedEdge}
+                onNodeClick={(nodeId) => {
+                  setSelectedNode(nodeId);
+                  setSelectedEdge(null);
+                }}
+                onEdgeClick={(edgeRowId) => {
+                  setSelectedEdge(edgeRowId);
+                  setSelectedNode(null);
+                }}
+              />
+            </Card>
           </div>
 
-          {graph.cycles && graph.cycles.length > 0 && (
-            <div className="bg-white border rounded-xl p-4 shadow-sm">
-              <h3 className="font-semibold text-sm text-gray-800 mb-2">Detected Cycles</h3>
-              <div className="space-y-2">
-                {graph.cycles.map((c) => (
-                  <div key={c.cycle_id} className="text-xs border border-red-200 bg-red-50/80 rounded-lg p-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-red-800 font-mono">{c.cycle_id}</span>
-                      <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-bold">
-                        Risk: {c.cycle_risk_score != null ? ((c.cycle_risk_score as number) * 100).toFixed(0) : "0"}%
-                      </span>
-                    </div>
-                    <p className="text-gray-700 mt-1 font-mono text-[11px] font-medium">{c.nodes ? c.nodes.join(" → ") : ""}</p>
-                  </div>
-                ))}
+          <div className="space-y-4">
+            {patterns.length > 0 && (
+              <Card>
+                <CardHeader
+                  title="Suspicious patterns"
+                  description="Select one to isolate its hops on the graph."
+                  icon={Crosshair}
+                />
+                <div className="scroll-slim max-h-72 space-y-1.5 overflow-y-auto p-3">
+                  {patterns.map((p) => {
+                    const active = p.pattern_id === focusId;
+                    return (
+                      <button
+                        key={p.pattern_id}
+                        onClick={() => setFocus(active ? null : p.pattern_id)}
+                        className={`w-full rounded-lg border p-2.5 text-left transition-colors ${
+                          active
+                            ? "border-amber-300 bg-amber-50"
+                            : "border-ink-100 bg-white hover:border-ink-200 hover:bg-ink-50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-[12px] font-semibold text-ink-800">
+                            {p.title}
+                          </span>
+                          <SeverityBadge severity={p.severity} />
+                        </div>
+                        <p className="mt-0.5 truncate font-mono text-[10px] text-ink-400">
+                          {p.node_path.map((n) => n.label).join(" → ")}
+                        </p>
+                        <p className="num mt-0.5 text-[10px] text-ink-400">
+                          {p.hops.length} hops · {money(p.total_amount)}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="border-t border-ink-100 px-3 py-2">
+                  <LinkButton to={`/evidence/${effectiveId}`} variant="ghost" icon={ArrowRight}>
+                    Open full evidence timeline
+                  </LinkButton>
+                </div>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader title="Graph summary" icon={Network} />
+              <div className="space-y-2 p-4 text-[12px]">
+                <p className="flex justify-between text-ink-500">
+                  <span>Entities (nodes)</span>
+                  <strong className="num text-ink-900">{graph.nodes.length}</strong>
+                </p>
+                <p className="flex justify-between text-ink-500">
+                  <span>Transfers (edges)</span>
+                  <strong className="num text-ink-900">{graph.edges.length}</strong>
+                </p>
+                <p className="flex justify-between text-ink-500">
+                  <span>Circular flows</span>
+                  <strong className="num text-ink-900">{graph.cycles.length}</strong>
+                </p>
+                {subjectNode && typeof subjectNode.flow === "number" && (
+                  <p className="flex justify-between border-t border-ink-100 pt-2 text-ink-500">
+                    <span>Total volume</span>
+                    <strong className="num text-ink-900">{money(subjectNode.flow)}</strong>
+                  </p>
+                )}
               </div>
-            </div>
-          )}
+            </Card>
 
-          {selectedNodeData && (
-            <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 text-xs shadow-sm">
-              <h3 className="font-semibold text-blue-900">Selected Node</h3>
-              <p className="font-medium mt-1 text-gray-800">{selectedNodeData.label}</p>
-              <p className="text-gray-600 mt-0.5">
-                Total Transfer Flow: ₹{typeof selectedNodeData.flow === "number" ? selectedNodeData.flow.toFixed(2) : "0.00"}
-              </p>
-            </div>
-          )}
+            {selectedNodeData && (
+              <Card accent="info">
+                <div className="p-3.5">
+                  <p className="label-micro">Selected entity</p>
+                  <p className="mt-1 text-[13px] font-semibold text-ink-900">
+                    {selectedNodeData.label}
+                  </p>
+                  <p className="num mt-0.5 text-[12px] text-ink-500">
+                    Total transfer flow {money(selectedNodeData.flow)}
+                  </p>
+                </div>
+              </Card>
+            )}
 
-          {selectedEdgeData && (
-            <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 text-xs shadow-sm">
-              <h3 className="font-semibold text-blue-900">Selected Transaction</h3>
-              <p className="font-mono text-gray-700 mt-1">Row: {selectedEdgeData.row_id}</p>
-              <p className="font-bold text-blue-700 text-sm mt-0.5">
-                ₹{typeof selectedEdgeData.amount === "number" ? selectedEdgeData.amount.toFixed(2) : "0.00"}
-              </p>
-              <p className="text-gray-500">Channel: {selectedEdgeData.channel || "N/A"}</p>
-            </div>
-          )}
+            {selectedEdgeData && (
+              <Card accent="info">
+                <div className="p-3.5">
+                  <p className="label-micro">Selected transfer</p>
+                  <p className="num mt-1 text-[16px] font-bold text-brand-700">
+                    {money(selectedEdgeData.amount)}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[11px] text-ink-400">
+                    row {selectedEdgeData.row_id}
+                  </p>
+                  <p className="mt-0.5 text-[11px] uppercase tracking-wide text-ink-500">
+                    {selectedEdgeData.channel || "channel n/a"}
+                  </p>
+                </div>
+              </Card>
+            )}
 
-          <div className="bg-gray-50 border rounded-xl p-3.5 text-xs text-gray-600 space-y-2 shadow-sm">
-            <p className="font-semibold text-gray-800 mb-1">Graph Legend</p>
-            <p className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 bg-purple-600 rounded-full shadow-sm" />
-              <span><strong>Account Entity</strong> (Purple)</span>
-            </p>
-            <p className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 bg-blue-500 rounded-full shadow-sm" />
-              <span><strong>Counterparty Node</strong> (Blue)</span>
-            </p>
-            <p className="flex items-center gap-2">
-              <span className="inline-block w-3 h-3 bg-red-500 rounded-full ring-2 ring-red-300 shadow-sm" />
-              <span className="text-red-700 font-semibold">Mule Node / Cycle Entity (Red Bold)</span>
-            </p>
-            <p className="flex items-center gap-2">
-              <span className="inline-block w-5 h-1 bg-red-500 rounded align-middle" />
-              <span className="text-red-700 font-semibold">Mule Transaction (Bold Red Flow)</span>
-            </p>
-            <p className="flex items-center gap-2">
-              <span className="inline-block w-5 h-0.5 bg-slate-500 align-middle" />
-              <span className="text-gray-600">Regular Transaction Flow (Slate)</span>
-            </p>
+            <Card>
+              <CardHeader title="Legend" />
+              <div className="space-y-2 p-4 text-[11px] text-ink-600">
+                <p className="flex items-center gap-2">
+                  <span className="h-3 w-3 rounded-full bg-violet-600 ring-2 ring-violet-200" />
+                  Subject account
+                </p>
+                <p className="flex items-center gap-2">
+                  <span className="h-3 w-3 rounded-full bg-brand-500 ring-2 ring-brand-100" />
+                  Counterparty
+                </p>
+                <p className="flex items-center gap-2">
+                  <span className="h-3 w-3 rounded-full bg-red-500 ring-2 ring-red-200" />
+                  Mule / cycle entity
+                </p>
+                <p className="flex items-center gap-2 border-t border-ink-100 pt-2">
+                  <span className="inline-block h-1 w-5 rounded bg-red-500" />
+                  Mule transfer
+                </p>
+                <p className="flex items-center gap-2">
+                  <span className="inline-block h-0.5 w-5 rounded bg-ink-400" />
+                  Regular transfer
+                </p>
+                <p className="flex items-center gap-2">
+                  <span className="inline-block h-1 w-5 rounded bg-amber-500" />
+                  Focused pattern hop
+                </p>
+              </div>
+            </Card>
           </div>
         </div>
       </div>

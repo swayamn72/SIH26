@@ -1,3 +1,74 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-ink-50 text-ink-900 antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Every figure in an AML report is compared against another figure - keep
+     digits the same width so columns line up. */
+  table,
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply tracking-[-0.01em];
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500/60 ring-offset-1 ring-offset-white;
+  }
+
+  ::selection {
+    @apply bg-brand-100 text-brand-900;
+  }
+}
+
+@layer components {
+  /* Micro label used above every value in the console. */
+  .label-micro {
+    @apply text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-400;
+  }
+
+  .surface {
+    @apply rounded-xl border border-ink-100 bg-white shadow-card;
+  }
+
+  .hairline {
+    @apply border-ink-100;
+  }
+
+  .skeleton {
+    @apply rounded bg-ink-100 bg-gradient-to-r from-ink-100 via-ink-50 to-ink-100 bg-[length:500px_100%] animate-shimmer;
+  }
+
+  /* Scrollbars: thin and neutral so dense panels stay calm. */
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: theme("colors.ink.200") transparent;
+  }
+
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scroll-slim::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-ink-200;
+  }
+
+  .scroll-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
