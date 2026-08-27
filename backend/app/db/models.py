@@ -92,6 +92,17 @@ class InvestigatorLabel(SQLModel, table=True):
     labeled_ts: datetime = Field(default_factory=datetime.utcnow)
 
 
+class DemoLoad(SQLModel, table=True):
+    """Registry for synthetic demo records eligible for demo-only reset."""
+
+    __tablename__ = "demo_loads"
+    tag: str = Field(primary_key=True, max_length=64)
+    case_id: Optional[int] = Field(default=None, foreign_key="cases.id")
+    statement_ids: list[int] = Field(default=[], sa_column=Column(JSON))
+    status: str = Field(default="loading", max_length=32)
+    created_ts: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Case(SQLModel, table=True):
     """A persisted investigation containing a selected set of confirmed statements."""
 

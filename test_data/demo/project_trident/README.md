@@ -28,6 +28,14 @@ curl -F 'files=@test_data/demo/project_trident/project_trident_a_hdfc.csv' \
      -F 'files=@test_data/demo/project_trident/project_trident_b_sbi.csv' \
      -F 'files=@test_data/demo/project_trident/project_trident_c_icici.csv' \
      http://127.0.0.1:8000/api/statements/upload
+
+# Or use the idempotent demo loader. It resets only records registered under
+# the `project-trident` demo tag, uploads and confirms the fixtures through the
+# normal services, creates/analyzes the case, and verifies the A→B→C→A finding.
+curl -X POST http://127.0.0.1:8000/api/demo/project-trident/load
+
+# Remove only the tagged demo records when finished.
+curl -X POST http://127.0.0.1:8000/api/demo/project-trident/reset
 ```
 
 Use the mirrored `TRI-RING-AB`, `TRI-RING-BC`, and `TRI-RING-CA` references to
