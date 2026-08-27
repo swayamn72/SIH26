@@ -20,7 +20,6 @@ Two honesty requirements shape the output:
     difference between intelligence and a misleading number.
 """
 
-import re
 from datetime import datetime
 from typing import Any, Optional
 
@@ -40,15 +39,15 @@ INCLUDED_STATUSES = {"analyzed", "confirmed"}
 
 
 def _entity_key(bank_code: str, name: Optional[str], fallback: str) -> str:
-    """Stable node id for an account, keyed on who holds it rather than on which
-    statement observed it.
+    """Stable *observation* id, never an identity inferred from a display name.
 
-    This is what lets a ring close across statements: the account that statement A
-    calls a counterparty and statement B calls its own subject resolves to the same
-    node, so A -> B -> C -> A becomes one path instead of six disconnected hops.
+    A normalized name is not sufficient account-resolution evidence: two unrelated
+    people named Rahul at the same bank must not close an invented loop.  The caller
+    supplies a statement/row-scoped fallback, which is deliberately always part of
+    the returned key.  Case analysis may later resolve subjects only with exact
+    mirrored transfer evidence.
     """
-    slug = re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
-    return f"{bank_code}:{slug}" if slug else f"{bank_code}:{fallback}"
+    return f"{bank_code}:{fallback}"
 
 
 def _channel_to_format(channel: Optional[str], narration: str) -> str:
@@ -187,6 +186,7 @@ def build_statement_ledger(db: Session) -> dict[str, Any]:
                 "is_labelled_laundering": False,
                 # Provenance, so a profile can say where its evidence came from.
                 "source_statement_id": statement.id,
+                "source_row_id": txn.row_id,
                 "attribution_signal": signal,
             })
 
