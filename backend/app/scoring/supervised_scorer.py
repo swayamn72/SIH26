@@ -22,12 +22,6 @@ _REQUIRED_MANIFEST_FIELDS = {
 }
 
 
-def supervised_model_available(label_count: int) -> bool:
-    cfg = load_config("thresholds")
-    min_labels = cfg.get("supervised", {}).get("min_labeled_accounts", 200)
-    return label_count >= min_labels
-
-
 class SupervisedScorer:
     """Load a supervised scorer only when it has explicit governance metadata.
 

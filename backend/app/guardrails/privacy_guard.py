@@ -1,10 +1,5 @@
 import logging
 import re
-from typing import Callable
-
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-
 
 PII_PATTERNS = [
     (re.compile(r"\b\d{16}\b"), "[ACCOUNT_NUMBER]"),
@@ -19,12 +14,6 @@ def redact_pii(text: str) -> str:
     for pattern, replacement in PII_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
-
-
-class PIIRedactionMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        response = await call_next(request)
-        return response
 
 
 class PIIFilter(logging.Filter):

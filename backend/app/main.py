@@ -17,7 +17,7 @@ from app.api.routes_demo import router as demo_router
 from app.api.routes_sar import router as sar_router
 from app.db.session import engine
 from app.db.models import SQLModel
-from app.guardrails.privacy_guard import PIIRedactionMiddleware, PIIFilter
+from app.guardrails.privacy_guard import PIIFilter
 import logging
 
 app = FastAPI(
@@ -34,7 +34,9 @@ async def on_startup():
     SQLModel.metadata.create_all(engine)
     logging.getLogger().addFilter(PIIFilter())
 
-app.add_middleware(PIIRedactionMiddleware)
+# API responses intentionally preserve investigator evidence. PII protection for
+# provider requests is enforced by the narrative evidence projection, while this
+# filter redacts supported identifiers from application log messages.
 
 
 app.include_router(health_router, prefix="/api", tags=["health"])

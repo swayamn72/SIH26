@@ -26,22 +26,68 @@ def _configured_mode() -> NarrativeMode:
     return mode if mode in _VALID_MODES else "template"
 
 
+def compact_redacted_evidence_projection(bundle_json: dict[str, Any]) -> dict[str, Any]:
+    """Return the small, non-identifying fact set allowed in provider prompts.
+
+    Raw transaction rows, counterparty/account-holder names, statement identifiers,
+    dates, source locators, feature-level values, and free-text evidence never leave
+    the deterministic backend through narrative providers.
+    """
+    summary = bundle_json.get("account_summary", {})
+    decision = bundle_json.get("final_decision", {})
+    projection: dict[str, Any] = {
+        "analysis": {
+            "transaction_count": summary.get("transaction_count", 0),
+            "extraction_confidence": summary.get("extraction_confidence", 0),
+            "risk_tier": decision.get("tier", "REVIEW_REQUIRED"),
+            "fused_score": decision.get("fused_score", 0),
+        },
+        "triggered_rules": [
+            {"id": rule.get("id", ""), "points": rule.get("points", 0)}
+            for rule in bundle_json.get("triggered_rules", [])[:3]
+        ],
+        "cycles": [
+            {
+                "hop_count": cycle.get("hop_count", 0),
+                "amount_conservation_ratio": cycle.get("amount_conservation_ratio"),
+                "cycle_risk_score": cycle.get("cycle_risk_score"),
+            }
+            for cycle in bundle_json.get("cycles_detected", [])[:3]
+        ],
+        "limitations": {
+            "anomaly_availability": (bundle_json.get("anomaly_detail") or {}).get("availability_reason"),
+            "manual_mapping_used": (bundle_json.get("guardrail_log") or {}).get("manual_mapping_used", False),
+        },
+    }
+    return projection
+
+
 def _generate_with_client(
-    client: Any, mode: Literal["ollama", "groq"], bundle_str: str, template: str
+    client: Any,
+    mode: Literal["ollama", "groq"],
+    provider_evidence_json: str,
+    template: str,
 ) -> NarrativeResult:
     try:
         available, reason = client.availability()
         if not available:
             return NarrativeResult(template, mode, "template", None, reason, None)
         narrative = client.generate(
-            prompt=f"Summarize the following evidence bundle:\n\n{bundle_str}",
+            prompt=f"Summarize the following redacted evidence projection:\n\n{provider_evidence_json}",
             system_prompt=load_prompt("system_prompt_summary.txt"),
         )
-        if fact_check_output(narrative, bundle_str):
+        if fact_check_output(narrative, provider_evidence_json):
             return NarrativeResult(narrative, mode, mode, client.model, None, True)
         return NarrativeResult(template, mode, "template", None, "fact_check_failed", False)
     except Exception as exc:
-        return NarrativeResult(template, mode, "template", None, f"{mode}_generation_failed: {exc.__class__.__name__}", None)
+        return NarrativeResult(
+            template,
+            mode,
+            "template",
+            None,
+            f"{mode}_generation_failed: {exc.__class__.__name__}",
+            None,
+        )
 
 
 def generate_narrative_result(
@@ -49,39 +95,42 @@ def generate_narrative_result(
 ) -> NarrativeResult:
     """Generate narrative only through the explicitly selected provider.
 
-    The default is deterministic template mode. `auto` may try local Ollama and
-    then Groq only when auto was explicitly requested; it never changes the
-    local-first default into a cloud request.
+    Template output remains canonical and uses the complete internal bundle. Any
+    Ollama/Groq request receives only a compact redacted evidence projection. The
+    default is deterministic template mode; cloud fallback happens only for an
+    explicitly requested `auto` mode.
     """
     requested_mode = mode or _configured_mode()
     if not use_ai:
         requested_mode = "template"
     bundle_json = evidence_bundle.model_dump()
-    bundle_str = json.dumps(bundle_json, indent=2, default=str)
     template = generate_template_summary(bundle_json)
 
     if requested_mode == "template":
         return NarrativeResult(template, "template", "template", None, None, None)
 
+    provider_evidence_json = json.dumps(
+        compact_redacted_evidence_projection(bundle_json), indent=2, default=str
+    )
     if requested_mode == "ollama":
         from app.llm.ollama_client import OllamaClient
-        return _generate_with_client(OllamaClient(), "ollama", bundle_str, template)
+        return _generate_with_client(OllamaClient(), "ollama", provider_evidence_json, template)
 
     if requested_mode == "groq":
         from app.llm.groq_client import GroqClient
         try:
-            return _generate_with_client(GroqClient(), "groq", bundle_str, template)
+            return _generate_with_client(GroqClient(), "groq", provider_evidence_json, template)
         except Exception as exc:
             return NarrativeResult(template, "groq", "template", None, f"groq_unavailable: {exc.__class__.__name__}", None)
 
     # Auto is opt-in. Prefer the local provider, and disclose a cloud fallback.
     from app.llm.ollama_client import OllamaClient
-    local_result = _generate_with_client(OllamaClient(), "ollama", bundle_str, template)
+    local_result = _generate_with_client(OllamaClient(), "ollama", provider_evidence_json, template)
     if local_result.actual_mode == "ollama":
         return NarrativeResult(local_result.narrative, "auto", "ollama", local_result.model, None, local_result.fact_check_passed)
     from app.llm.groq_client import GroqClient
     try:
-        cloud_result = _generate_with_client(GroqClient(), "groq", bundle_str, template)
+        cloud_result = _generate_with_client(GroqClient(), "groq", provider_evidence_json, template)
     except Exception as exc:
         cloud_result = NarrativeResult(template, "groq", "template", None, f"groq_unavailable: {exc.__class__.__name__}", None)
     if cloud_result.actual_mode == "groq":
