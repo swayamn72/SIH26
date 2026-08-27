@@ -47,6 +47,10 @@ cycle:
   max_cycle_length: 6
   dense_component_edge_cap: 1000
   min_cycle_risk_score: 0.6
+case_graph:
+  mirrored_reference:
+    min_alphanumeric_length: 6
+    generic_tokens: [NA, NONE, UNKNOWN, REF, UTR, TRANSACTION, TRANSFER]
 bank_intelligence:
   flow_cycles:
     max_hops: 6
@@ -130,7 +134,6 @@ decision:
 supervised:
   # Existing checked-in artifacts have no provenance manifest and must not fuse.
   enabled: false
-  min_labeled_accounts: 200
 anomaly:
   # Current statement is scored against this many other statements; below this,
   # anomaly scoring is explicitly unavailable rather than self-training.

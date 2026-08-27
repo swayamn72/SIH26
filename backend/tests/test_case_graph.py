@@ -51,12 +51,12 @@ def test_case_analysis_detects_exact_mirrored_three_hop_ring():
         db.add(CaseStatement(case_id=case.id, statement_id=statement.id))
 
     # Each transfer is seen from both account statements with the exact reference.
-    _transaction(db, "a-ab", a.id, date(2025, 1, 1), "AB-001", debit=1000)
-    _transaction(db, "b-ab", b.id, date(2025, 1, 1), "AB-001", credit=1000)
-    _transaction(db, "b-bc", b.id, date(2025, 1, 2), "BC-001", debit=1000)
-    _transaction(db, "c-bc", c.id, date(2025, 1, 2), "BC-001", credit=1000)
-    _transaction(db, "c-ca", c.id, date(2025, 1, 3), "CA-001", debit=1000)
-    _transaction(db, "a-ca", a.id, date(2025, 1, 3), "CA-001", credit=1000)
+    _transaction(db, "a-ab", a.id, date(2025, 1, 1), "AB-000001", debit=1000)
+    _transaction(db, "b-ab", b.id, date(2025, 1, 1), "AB-000001", credit=1000)
+    _transaction(db, "b-bc", b.id, date(2025, 1, 2), "BC-000001", debit=1000)
+    _transaction(db, "c-bc", c.id, date(2025, 1, 2), "BC-000001", credit=1000)
+    _transaction(db, "c-ca", c.id, date(2025, 1, 3), "CA-000001", debit=1000)
+    _transaction(db, "a-ca", a.id, date(2025, 1, 3), "CA-000001", credit=1000)
     db.commit()
 
     summary = analyze_case(db, case)

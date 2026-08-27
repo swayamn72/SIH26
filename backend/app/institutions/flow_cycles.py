@@ -158,17 +158,12 @@ def find_conserved_cycles(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         continue
                     indices = path + [next_idx]
                     accounts = [rows[i]["from_account"] for i in indices]
-                    # Keyed on the account set alone: the same ring running weekly is
-                    # one pattern with a recurrence count, not fifty separate findings.
-                    key = tuple(sorted(set(accounts)))
+                    # Canonicalize only rotations of this exact chronological round.
+                    # Do not union recurrence paths: a persisted finding must retain
+                    # one internally consistent ordered edge/node sequence.
+                    rotations = [tuple(accounts[offset:] + accounts[:offset]) for offset in range(len(accounts))]
+                    key = min(rotations)
                     if key in found:
-                        # Same ring reached by another path: widen the transfer set.
-                        # Recurrence and value are derived from that set afterwards,
-                        # never incremented per path, or permutations inflate both.
-                        entry = found[key]
-                        entry["transfer_indices"] = sorted(
-                            set(entry["transfer_indices"]) | set(indices)
-                        )
                         continue
 
                     cycle_rows = [rows[i] for i in indices]
@@ -198,10 +193,11 @@ def find_conserved_cycles(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     cycles: list[dict[str, Any]] = []
     for i, cycle in enumerate(found.values()):
-        # One "round" is one loop's worth of transfers.
+        # One finding is exactly one chronological round. Recurrence episodes are
+        # deliberately not folded into its edge list or node sequence.
         indices = cycle["transfer_indices"]
         cycle["total_amount"] = round(sum(rows[j]["amount"] for j in indices), 2)
-        cycle["recurrence"] = max(1, round(len(indices) / max(cycle["hop_count"], 1)))
+        cycle["recurrence"] = 1
         cycle["transfer_count"] = len(indices)
         scored = _score(
             cycle.pop("amounts"),
