@@ -56,7 +56,9 @@ def test_project_trident_uses_existing_csv_template_and_reconciles():
             "Credit Amount (₹)",
             "Balance (₹)",
         ]
-        assert len(rows) == statement["source_transaction_count"]
+        # The shared extractor intentionally filters opening-balance rows as
+        # statement metadata, so its output matches the ingestible count.
+        assert len(rows) == statement["transaction_count"]
 
         classified = classify_columns(headers, rows)
         col_map = {index: field for index, (field, _) in classified.items()}
