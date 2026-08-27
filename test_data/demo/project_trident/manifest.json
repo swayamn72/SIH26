@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0",
+  "package": "Project Trident",
+  "synthetic": true,
+  "purpose": "Deterministic multi-statement investigation demo fixture. Expected facts are verification metadata only and are not score inputs.",
+  "scoring_label_policy": "This manifest is not read by ingestion or scoring and contains no risk, laundering, or outcome label.",
+  "statements": [
+    {
+      "id": "trident-a",
+      "file": "project_trident_a_hdfc.csv",
+      "subject": "Asha Verma",
+      "institution": "HDFC",
+      "opening_balance": "25000.00",
+      "closing_balance": "180000.00",
+      "source_transaction_count": 7,
+      "transaction_count": 6
+    },
+    {
+      "id": "trident-b",
+      "file": "project_trident_b_sbi.csv",
+      "subject": "Blue Dune Trading LLP",
+      "institution": "SBIN",
+      "opening_balance": "32000.00",
+      "closing_balance": "29800.00",
+      "source_transaction_count": 5,
+      "transaction_count": 4
+    },
+    {
+      "id": "trident-c",
+      "file": "project_trident_c_icici.csv",
+      "subject": "Cobalt Route Solutions Pvt Ltd",
+      "institution": "ICIC",
+      "opening_balance": "41000.00",
+      "closing_balance": "30000.00",
+      "source_transaction_count": 6,
+      "transaction_count": 5
+    }
+  ],
+  "expected_evidence": {
+    "ring": {
+      "description": "A→B→C→A transfers with mirrored references across the three single-account statements.",
+      "account_order": ["Asha Verma", "Blue Dune Trading LLP", "Cobalt Route Solutions Pvt Ltd", "Asha Verma"],
+      "hops": [
+        {"reference": "TRI-RING-AB", "from": "Asha Verma", "to": "Blue Dune Trading LLP", "amount": "145000.00", "date": "10/06/2024"},
+        {"reference": "TRI-RING-BC", "from": "Blue Dune Trading LLP", "to": "Cobalt Route Solutions Pvt Ltd", "amount": "143000.00", "date": "10/06/2024"},
+        {"reference": "TRI-RING-CA", "from": "Cobalt Route Solutions Pvt Ltd", "to": "Asha Verma", "amount": "141000.00", "date": "11/06/2024"}
+      ],
+      "amount_loss": "4000.00",
+      "elapsed_calendar_days": 1
+    },
+    "structuring": {
+      "statement": "trident-a",
+      "threshold": "50000.00",
+      "deposits": [
+        {"reference": "TRI-A-CASH-01", "amount": "48500.00"},
+        {"reference": "TRI-A-CASH-02", "amount": "49000.00"}
+      ]
+    },
+    "rapid_layering": {
+      "description": "A→B and B→C occur on the same calendar date; statements have date precision only.",
+      "references": ["TRI-RING-AB", "TRI-RING-BC"]
+    },
+    "partial_vasp_exit": {"statement": "trident-c", "reference": "TRI-CRYPTO-EXIT", "counterparty": "VAULTBRIDGE VASP", "amount": "12000.00"},
+    "benign_controls": [
+      {"statement": "trident-a", "reference": "TRI-A-SALARY", "description": "payroll credit"},
+      {"statement": "trident-a", "reference": "TRI-A-GROCERY", "description": "merchant purchase"},
+      {"statement": "trident-b", "reference": "TRI-B-PHARMACY", "description": "operating expense"},
+      {"statement": "trident-c", "reference": "TRI-C-UTILITY", "description": "utility bill"}
+    ],
+    "same_name_false_merge_trap": {
+      "name": "Nikhil Shah",
+      "observations": [
+        {"statement": "trident-b", "reference": "TRI-CONTROL-B", "associated_bank": "HDFC"},
+        {"statement": "trident-c", "reference": "TRI-CONTROL-C", "associated_bank": "ICIC"}
+      ],
+      "expected_resolution": "Do not auto-merge on name alone; the associated institutions differ."
+    }
+  }
+}
