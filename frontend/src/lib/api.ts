@@ -54,6 +54,91 @@ export type GraphData = {
   mule_nodes?: string[];
 };
 
+export type InvestigationCase = {
+  id: number;
+  name: string;
+  description: string | null;
+  created_ts: string;
+  analyzed_ts: string | null;
+  analysis_version: number;
+  statement_ids: number[];
+};
+
+export type CaseGraphNode = {
+  id: string;
+  kind: "subject_account" | "counterparty_observation" | string;
+  label: string;
+  institution: string | null;
+  risk_tier: "high" | "normal" | string;
+  evidence: Record<string, unknown>;
+};
+
+export type CaseGraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  amount: number;
+  txn_date: string;
+  source_statement_ids: number[];
+  source_row_ids: string[];
+  resolution_method: string;
+  is_finding_edge: boolean;
+};
+
+export type CaseGraphFinding = {
+  id: string;
+  kind: string;
+  risk_score: number;
+  hop_count: number;
+  node_sequence: string[];
+  edge_ids: string[];
+  source_row_ids: string[];
+};
+
+export type CaseGraph = {
+  case_id: number;
+  nodes: CaseGraphNode[];
+  edges: CaseGraphEdge[];
+  findings: CaseGraphFinding[];
+  limitations: string[];
+};
+
+export type CaseFindingDetail = CaseGraphFinding & {
+  case_id: number;
+  source_statement_ids: number[];
+  detail: { formula?: string; limitations?: string[]; [key: string]: unknown };
+  ordered_hops: Array<{
+    edge_id: string;
+    source: string;
+    target: string;
+    amount: number;
+    txn_date: string;
+    source_row_ids: string[];
+    source_statement_ids: number[];
+  }>;
+};
+
+export type CaseNodeTransaction = {
+  edge_id: string;
+  direction: "in" | "out";
+  row_id: string;
+  statement_id: number;
+  source_filename: string | null;
+  txn_date: string;
+  amount: number;
+  narration: string | null;
+  reference_no: string | null;
+  debit_amount: number | null;
+  credit_amount: number | null;
+};
+
+export type CaseNodeTransactionPage = {
+  total: number;
+  offset: number;
+  limit: number;
+  items: CaseNodeTransaction[];
+};
+
 export type PatternSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 
 export type PatternHop = {
@@ -606,6 +691,18 @@ export const api = {
 
   getGraph: async (id: number) => normalizeGraphData(await request<unknown>(`/statements/${id}/graph`)),
 
+  listCases: () => request<InvestigationCase[]>("/cases"),
+  getCase: (id: number) => request<InvestigationCase>(`/cases/${id}`),
+  getCaseGraph: (id: number) => request<CaseGraph>(`/cases/${id}/graph`),
+  analyzeCase: (id: number) => request<{ case: InvestigationCase; summary: { nodes: number; edges: number; findings: number } }>(`/cases/${id}/analyze`, { method: "POST" }),
+  getCaseFinding: (caseId: number, findingId: string) =>
+    request<CaseFindingDetail>(`/cases/${caseId}/findings/${encodeURIComponent(findingId)}`),
+  getCaseNodeTransactions: (caseId: number, nodeId: string, offset = 0, limit = 20, findingId?: string) => {
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    if (findingId) params.set("finding_id", findingId);
+    return request<CaseNodeTransactionPage>(`/cases/${caseId}/nodes/${encodeURIComponent(nodeId)}/transactions?${params}`);
+  },
+
   getPatterns: (id: number) => request<PatternsResponse>(`/statements/${id}/patterns`),
 
   getWhyFlagged: (id: number) => request<WhyFlagged>(`/statements/${id}/why-flagged`),
@@ -692,4 +789,72 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(config),
     }),
+
+  getSarCaseGraph: (caseId: number) => request<SarCaseGraph>(`/cases/${caseId}/graph`),
+  getSarDraft: (caseId: number, findingId: string) =>
+    request<SarDraft>(`/cases/${caseId}/findings/${encodeURIComponent(findingId)}/sar-draft`),
+  exportSarDraft: (caseId: number, findingId: string, format: "json" | "html") =>
+    downloadResponse(
+      `/cases/${caseId}/findings/${encodeURIComponent(findingId)}/sar-draft/export?format=${format}`,
+      `case_${caseId}_finding_${findingId}_sar_str_draft.${format}`,
+    ),
 };
+
+
+export type SarCaseGraph = {
+  case_id: number;
+  findings: Array<{
+    id: string;
+    kind: string;
+    risk_score: number;
+    hop_count: number;
+    source_row_ids: string[];
+  }>;
+};
+
+export type SarDraft = {
+  draft_type: string;
+  status: string;
+  filing_status: "NOT_FILED";
+  non_filing_notice: string;
+  case: { id: number; name: string; description: string | null };
+  finding: { id: string; kind: string; risk_score: number; hop_count: number };
+  subject_data: { statement_id: number; account_holder: string | null; institution: string | null; source_evidence_id: string }[];
+  activity: {
+    categories: string[];
+    start_date: string | null;
+    end_date: string | null;
+    date_precision: string;
+    transfer_count: number;
+    total_suspicious_value: number;
+  };
+  five_w_narrative: Record<"who" | "what" | "when" | "where" | "why", string>;
+  ordered_graph_path: {
+    step: number;
+    edge_id: string;
+    from_node_id: string;
+    from_label: string;
+    to_node_id: string;
+    to_label: string;
+    amount: number;
+    txn_date: string;
+    evidence_ids: string[];
+  }[];
+  evidence_ids: string[];
+  limitations: string[];
+  missing_required_fields: string[];
+  reviewer_confirmation: { required: boolean; confirmed: boolean; message: string };
+};
+
+export async function downloadResponse(path: string, fallback: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`);
+  if (!res.ok) throw new Error(`Export failed (${res.status})`);
+  const url = window.URL.createObjectURL(await res.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filenameFromContentDisposition(res.headers.get("Content-Disposition"), fallback);
+  document.body.appendChild(anchor);
+  anchor.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(anchor);
+}

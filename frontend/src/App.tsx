@@ -16,12 +16,16 @@ import {
   Landmark,
 } from "lucide-react";
 import { UploadPage } from "./pages/UploadPage";
+import { CasesPage } from "./pages/CasesPage";
+import { CaseGraphPage } from "./pages/CaseGraphPage";
 import { ExtractionReviewPage } from "./pages/ExtractionReviewPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { EvidenceExplorerPage } from "./pages/EvidenceExplorerPage";
 import { ProofGraphPage } from "./pages/ProofGraphPage";
 import { BankIntelligencePage } from "./pages/BankIntelligencePage";
 import { BankProfilePage } from "./pages/BankProfilePage";
+import { SarDraftPage } from "./pages/SarDraftPage";
+import { CaseFindingsPage } from "./pages/CaseFindingsPage";
 import { StatementProvider, useStatement } from "./lib/StatementContext";
 import { TIER_META } from "./components/ui";
 
@@ -373,6 +377,8 @@ function AppLayout() {
       <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
         <Routes>
           <Route path="/" element={<UploadPage />} />
+          <Route path="/cases" element={<CasesPage />} />
+          <Route path="/cases/:caseId/graph" element={<CaseGraphPage />} />
           <Route path="/review" element={<ExtractionReviewPage />} />
           <Route path="/review/:id" element={<ExtractionReviewPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
@@ -383,6 +389,8 @@ function AppLayout() {
           <Route path="/graph/:id" element={<ProofGraphPage />} />
           <Route path="/banks" element={<BankIntelligencePage />} />
           <Route path="/banks/:code" element={<BankProfilePage />} />
+          <Route path="/cases/:caseId/findings" element={<CaseFindingsPage />} />
+          <Route path="/cases/:caseId/findings/:findingId/sar-draft" element={<SarDraftPage />} />
         </Routes>
       </main>
     </div>

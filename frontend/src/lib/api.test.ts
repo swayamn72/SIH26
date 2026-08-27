@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { filenameFromContentDisposition, normalizeGraphData } from "./api";
 
 describe("filenameFromContentDisposition", () => {
@@ -39,5 +39,26 @@ describe("normalizeGraphData", () => {
       mule_row_ids: ["row-1"],
       mule_nodes: [],
     });
+  });
+});
+
+describe("SAR draft API adapter", () => {
+  it("keeps draft exports evidence-specific and URL-encodes finding IDs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("draft", {
+      headers: { "Content-Disposition": 'attachment; filename="case_2_finding_a_b_sar_str_draft.html"' },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const createObjectURL = vi.fn(() => "blob:test");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(window.URL, "createObjectURL", { value: createObjectURL, configurable: true });
+    Object.defineProperty(window.URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    const { api } = await import("./api");
+    await api.exportSarDraft(2, "a/b", "html");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/cases/2/findings/a%2Fb/sar-draft/export?format=html");
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
   });
 });

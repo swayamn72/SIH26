@@ -14,6 +14,7 @@ from app.api.routes_report import router as report_router
 from app.api.routes_config import router as config_router
 from app.api.routes_cases import router as cases_router
 from app.api.routes_demo import router as demo_router
+from app.api.routes_sar import router as sar_router
 from app.db.session import engine
 from app.db.models import SQLModel
 from app.guardrails.privacy_guard import PIIRedactionMiddleware, PIIFilter
@@ -46,6 +47,7 @@ app.include_router(report_router, prefix="/api/statements", tags=["report"])
 app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(cases_router, prefix="/api/cases", tags=["cases"])
 app.include_router(demo_router, prefix="/api/demo", tags=["demo"])
+app.include_router(sar_router, prefix="/api/cases", tags=["sar-draft"])
 
 
 static_dir = Path(__file__).parents[2] / "frontend" / "dist"
