@@ -36,6 +36,9 @@ class AnomalyDetail(BaseModel):
     top_contributing_features: list[str] = []
     mad_flagged_features: dict[str, float] = {}
     seed: int = 42
+    availability_reason: Optional[str] = None
+    reference_cohort_size: Optional[int] = None
+    minimum_reference_cohort_size: Optional[int] = None
 
 
 class SupervisedDetail(BaseModel):

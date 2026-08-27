@@ -81,9 +81,13 @@ def assemble_evidence_bundle(
             for c in cycles
         ],
         anomaly_detail=AnomalyDetail(
-            isolation_forest_score=anomaly_detail.get("isolation_forest_score") if anomaly_detail else None,
-            top_contributing_features=anomaly_detail.get("top_contributing_features", []) if anomaly_detail else [],
-            mad_flagged_features=anomaly_detail.get("mad_flagged_features", {}) if anomaly_detail else {},
+            isolation_forest_score=anomaly_detail.get("isolation_forest_score"),
+            top_contributing_features=anomaly_detail.get("top_contributing_features", []),
+            mad_flagged_features=anomaly_detail.get("mad_flagged_features", {}),
+            seed=anomaly_detail.get("seed", 42),
+            availability_reason=anomaly_detail.get("availability_reason"),
+            reference_cohort_size=anomaly_detail.get("reference_cohort_size"),
+            minimum_reference_cohort_size=anomaly_detail.get("minimum_reference_cohort_size"),
         ) if anomaly_detail else None,
         supervised_detail=SupervisedDetail(**supervised_detail) if supervised_detail else None,
         guardrail_log=GuardrailLog(

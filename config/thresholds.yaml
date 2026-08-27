@@ -132,6 +132,9 @@ supervised:
   enabled: false
   min_labeled_accounts: 200
 anomaly:
+  # Current statement is scored against this many other statements; below this,
+  # anomaly scoring is explicitly unavailable rather than self-training.
+  minimum_reference_statements: 3
   isolation_forest:
     n_estimators: 200
     random_state: 42
