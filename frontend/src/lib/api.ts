@@ -443,12 +443,129 @@ export type StatementItem = {
   fused_score: number | null;
 };
 
+export type TransactionRow = {
+  row_id: string;
+  txn_date: string;
+  value_date: string | null;
+  narration: string;
+  reference_no: string | null;
+  debit_amount: number | null;
+  credit_amount: number | null;
+  balance_after: number | null;
+  channel: string | null;
+  category: string | null;
+  counterparty_id: number | null;
+  row_confidence: number;
+  is_reconciled: boolean;
+  tagged_rules: string[];
+  tagged_cycles: string[];
+};
+
 export type PagedTransactions = {
-  rows: Record<string, unknown>[];
+  rows: TransactionRow[];
   total: number;
   page: number;
   page_size: number;
 };
+
+type TransactionPayload = Omit<TransactionRow, "tagged_rules" | "tagged_cycles"> & {
+  tagged_rules?: unknown;
+  tagged_cycles?: unknown;
+};
+
+type TransactionPagePayload = {
+  total: number;
+  offset: number;
+  limit: number;
+  items: TransactionPayload[];
+};
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function normalizeTransaction(row: TransactionPayload): TransactionRow {
+  return {
+    ...row,
+    tagged_rules: stringArray(row.tagged_rules),
+    tagged_cycles: stringArray(row.tagged_cycles),
+  };
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+export function normalizeGraphData(value: unknown): GraphData {
+  const payload = record(value) || {};
+  const nodes = Array.isArray(payload.nodes)
+    ? payload.nodes.flatMap((node) => {
+        const item = record(node);
+        return item && typeof item.id === "string" && typeof item.label === "string"
+          ? [{ id: item.id, label: item.label, flow: Number(item.flow) || 0 }]
+          : [];
+      })
+    : [];
+  const edges = Array.isArray(payload.edges)
+    ? payload.edges.flatMap((edge) => {
+        const item = record(edge);
+        return item &&
+          typeof item.source === "string" &&
+          typeof item.target === "string" &&
+          typeof item.row_id === "string" &&
+          nodes.some((node) => node.id === item.source) &&
+          nodes.some((node) => node.id === item.target)
+          ? [{
+              source: item.source,
+              target: item.target,
+              amount: Number(item.amount) || 0,
+              channel: typeof item.channel === "string" ? item.channel : "",
+              row_id: item.row_id,
+            }]
+          : [];
+      })
+    : [];
+  const cycles = Array.isArray(payload.cycles)
+    ? payload.cycles.flatMap((cycle) => {
+        const item = record(cycle);
+        return item && typeof item.cycle_id === "string"
+          ? [{
+              cycle_id: item.cycle_id,
+              nodes: stringArray(item.nodes),
+              cycle_risk_score: Number(item.cycle_risk_score) || 0,
+              hop_count: Number(item.hop_count) || 0,
+            }]
+          : [];
+      })
+    : [];
+
+  return {
+    nodes,
+    edges,
+    cycles,
+    mule_row_ids: stringArray(payload.mule_row_ids),
+    mule_nodes: stringArray(payload.mule_nodes),
+  };
+}
+
+export function filenameFromContentDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+
+  const encoded = header.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return fallback;
+    }
+  }
+
+  const quoted = header.match(/filename="([^\"]+)"/i)?.[1];
+  const bare = header.match(/filename=([^;\s]+)/i)?.[1];
+  return quoted || bare || fallback;
+}
 
 export const api = {
   health: () => request<HealthStatus>("/health"),
@@ -476,18 +593,18 @@ export const api = {
 
   getEvidence: (id: number) => request<EvidenceBundle>(`/statements/${id}/evidence`),
 
-  getTransactions: async (id: number, page = 1, pageSize = 100) => {
+  getTransactions: async (id: number, page = 1, pageSize = 100): Promise<PagedTransactions> => {
     const offset = (page - 1) * pageSize;
-    const res = await request<{ total: number; offset: number; limit: number; items: Record<string, unknown>[] }>(`/statements/${id}/transactions?offset=${offset}&limit=${pageSize}`);
+    const res = await request<TransactionPagePayload>(`/statements/${id}/transactions?offset=${offset}&limit=${pageSize}`);
     return {
-      rows: res.items,
+      rows: res.items.map(normalizeTransaction),
       total: res.total,
       page,
       page_size: pageSize,
     };
   },
 
-  getGraph: (id: number) => request<GraphData>(`/statements/${id}/graph`),
+  getGraph: async (id: number) => normalizeGraphData(await request<unknown>(`/statements/${id}/graph`)),
 
   getPatterns: (id: number) => request<PatternsResponse>(`/statements/${id}/patterns`),
 
@@ -540,11 +657,13 @@ export const api = {
     return { text: res.narrative, source: res.source };
   },
 
-  batchMerge: (statement_ids: number[]) =>
-    request<GraphData>("/statements/batch/merge", {
-      method: "POST",
-      body: JSON.stringify({ statement_ids }),
-    }),
+  batchMerge: async (statement_ids: number[]) =>
+    normalizeGraphData(
+      await request<unknown>("/statements/batch/merge", {
+        method: "POST",
+        body: JSON.stringify({ statement_ids }),
+      }),
+    ),
 
   exportReport: async (id: number) => {
     const res = await fetch(`${BASE}/statements/${id}/export`, { method: "POST" });
@@ -553,7 +672,10 @@ export const api = {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `statement_${id}_report`;
+    a.download = filenameFromContentDisposition(
+      res.headers.get("Content-Disposition"),
+      `statement_${id}_report`,
+    );
     document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(url);

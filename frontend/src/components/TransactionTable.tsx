@@ -1,19 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { TransactionRow } from "../lib/api";
 import { Badge, TBody, THead, Table, Td, Th, formatDate, inr } from "./ui";
-
-type TransactionRow = {
-  row_id: string;
-  txn_date: string;
-  narration: string;
-  debit_amount: number | null;
-  credit_amount: number | null;
-  balance_after: number | null;
-  channel: string | null;
-  category: string | null;
-  row_confidence: number;
-  tagged_rules: string[];
-  tagged_cycles: string[];
-};
 
 type TransactionTableProps = {
   rows: TransactionRow[];

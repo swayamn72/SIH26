@@ -19,7 +19,7 @@ import { RuleTriggerList } from "../components/RuleTriggerList";
 import { TransactionTable } from "../components/TransactionTable";
 import { NarrativePanel } from "../components/NarrativePanel";
 import { WhyFlaggedPanel } from "../components/WhyFlaggedPanel";
-import { api, EvidenceBundle, WhyFlagged } from "../lib/api";
+import { api, EvidenceBundle, PagedTransactions, WhyFlagged } from "../lib/api";
 import { useStatement } from "../lib/StatementContext";
 import {
   Badge,
@@ -117,13 +117,16 @@ export function DashboardPage() {
   const [bundle, setBundle] = useState<EvidenceBundle | null>(null);
   const [whyFlagged, setWhyFlagged] = useState<WhyFlagged | null>(null);
   const [narrative, setNarrative] = useState<{ text: string; source: string } | null>(null);
-  const [transactions, setTransactions] = useState<{ rows: Record<string, unknown>[]; total: number }>({
+  const [transactions, setTransactions] = useState<PagedTransactions>({
     rows: [],
     total: 0,
+    page: 1,
+    page_size: 100,
   });
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (id && Number(id) !== currentId) {
@@ -132,37 +135,56 @@ export function DashboardPage() {
   }, [id, currentId, setCurrentId]);
 
   useEffect(() => {
+    setPage(1);
+  }, [effectiveId]);
+
+  useEffect(() => {
     if (!effectiveId) {
       setLoading(false);
       return;
     }
+
+    let cancelled = false;
     setLoading(true);
     setNotFound(false);
+    setLoadError(null);
+    setBundle(null);
+    setWhyFlagged(null);
+    setNarrative(null);
 
     Promise.all([
-      api.getEvidence(effectiveId).catch(() => null),
-      api.getTransactions(effectiveId).catch(() => ({ rows: [], total: 0 })),
+      api.getEvidence(effectiveId),
+      api.getTransactions(effectiveId, page),
       api.getWhyFlagged(effectiveId).catch(() => null),
     ])
       .then(([evBundle, txns, why]) => {
-        if (!evBundle) {
-          setNotFound(true);
-        } else {
-          setBundle(evBundle);
-        }
-        if (txns) setTransactions(txns as any);
+        if (cancelled) return;
+        setBundle(evBundle);
+        setTransactions(txns);
         setWhyFlagged(why);
       })
-      .finally(() => setLoading(false));
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "Unable to load this case.";
+        setLoadError(message);
+        setNotFound(message.includes("API 404"));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
     // Narrative generation is slow — let it land on its own.
     api
       .getNarrative(effectiveId)
       .then((narr) => {
-        if (narr) setNarrative(narr);
+        if (!cancelled) setNarrative(narr);
       })
       .catch(() => null);
-  }, [effectiveId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveId, page]);
 
   if (loading) return <LoadingPanel label="Loading risk dashboard" />;
 
@@ -177,11 +199,19 @@ export function DashboardPage() {
         <div className="p-4 sm:p-6">
           <EmptyState
             icon={LayoutDashboard}
-            title={effectiveId ? `Case #${effectiveId} has not been analysed` : "No case selected"}
+            title={
+              loadError && !notFound
+                ? "Unable to load this dashboard"
+                : effectiveId
+                  ? `Case #${effectiveId} has not been analysed`
+                  : "No case selected"
+            }
             description={
-              effectiveId
-                ? "Confirm the column mapping in Extraction Review to run the detection pipeline for this statement."
-                : "Select a case below or upload a new statement to begin."
+              loadError && !notFound
+                ? `${loadError} Check the API connection and try again.`
+                : effectiveId
+                  ? "Confirm the column mapping in Extraction Review to run the detection pipeline for this statement."
+                  : "Select a case below or upload a new statement to begin."
             }
             actions={
               effectiveId ? (
@@ -233,11 +263,11 @@ export function DashboardPage() {
     );
   }
 
-  const features = (bundle?.features || []) as FeatureRow[];
-  const rules = bundle?.triggered_rules || [];
-  const decision = bundle?.final_decision || {};
-  const cycles = bundle?.cycles_detected || [];
-  const summary = bundle?.account_summary || {};
+  const features = (bundle.features || []) as FeatureRow[];
+  const rules = bundle.triggered_rules || [];
+  const decision = bundle.final_decision || {};
+  const cycles = bundle.cycles_detected || [];
+  const summary = bundle.account_summary || {};
   const tier = (decision.tier as string) || "REVIEW_REQUIRED";
   const period = summary.observed_period as { start?: string; end?: string } | undefined;
 
@@ -430,7 +460,7 @@ export function DashboardPage() {
             actions={<Badge tone="neutral">{transactions.total} rows</Badge>}
           />
           <TransactionTable
-            rows={transactions.rows as any[]}
+            rows={transactions.rows}
             total={transactions.total}
             page={page}
             pageSize={100}

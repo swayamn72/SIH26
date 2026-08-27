@@ -44,6 +44,7 @@ export function ProofGraphPage() {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [patterns, setPatterns] = useState<SuspiciousPattern[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [mode, setMode] = useState<"single" | "merged">("single");
@@ -65,29 +66,46 @@ export function ProofGraphPage() {
   }, [id, currentId, setCurrentId]);
 
   useEffect(() => {
-    if (mode === "merged") {
-      const ids = statements.map((s) => s.id);
-      if (ids.length >= 2) {
-        setLoading(true);
-        api
-          .batchMerge(ids)
-          .then(setGraph)
-          .catch(() => setGraph(null))
-          .finally(() => setLoading(false));
-        return;
-      }
-    }
+    let cancelled = false;
+    setSelectedNode(null);
+    setSelectedEdge(null);
+    setLoadError(null);
 
-    if (!effectiveId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    api
-      .getGraph(effectiveId)
-      .then(setGraph)
-      .catch(() => setGraph(null))
-      .finally(() => setLoading(false));
+    const loadGraph = async () => {
+      try {
+        setLoading(true);
+        if (mode === "merged") {
+          const ids = statements.map((s) => s.id);
+          if (ids.length < 2) {
+            if (!cancelled) setGraph(null);
+            return;
+          }
+          const result = await api.batchMerge(ids);
+          if (!cancelled) setGraph(result);
+          return;
+        }
+
+        if (!effectiveId) {
+          if (!cancelled) setGraph(null);
+          return;
+        }
+
+        const result = await api.getGraph(effectiveId);
+        if (!cancelled) setGraph(result);
+      } catch (error) {
+        if (!cancelled) {
+          setGraph(null);
+          setLoadError(error instanceof Error ? error.message : "Unable to load the transaction graph.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void loadGraph();
+    return () => {
+      cancelled = true;
+    };
   }, [effectiveId, mode, statements]);
 
   // Pattern timelines back the "View in Proof Graph" deep links (?focus=<pattern_id>).
@@ -109,7 +127,8 @@ export function ProofGraphPage() {
 
   if (loading) return <LoadingPanel label="Loading transaction graph" />;
 
-  if (!effectiveId || !graph) {
+  if (!effectiveId || !graph || graph.nodes.length === 0) {
+    const hasEmptyGraph = !!graph && graph.nodes.length === 0;
     return (
       <div className="animate-fade-in">
         <PageHeader
@@ -120,11 +139,21 @@ export function ProofGraphPage() {
         <div className="p-4 sm:p-6">
           <EmptyState
             icon={GitGraph}
-            title={effectiveId ? `No graph for case #${effectiveId}` : "No case selected"}
+            title={
+              loadError
+                ? "Unable to load the graph"
+                : hasEmptyGraph
+                  ? `No transactions available for case #${effectiveId}`
+                  : effectiveId
+                    ? `No graph for case #${effectiveId}`
+                    : "No case selected"
+            }
             description={
-              effectiveId
-                ? "Confirm the extraction and run analysis first to build the transaction graph."
-                : "Select a case below, or upload a new statement."
+              loadError
+                ? `${loadError} Check the API connection and try again.`
+                : effectiveId
+                  ? "Confirm the extraction and run analysis first to build the transaction graph."
+                  : "Select a case below, or upload a new statement."
             }
             actions={
               effectiveId ? (
