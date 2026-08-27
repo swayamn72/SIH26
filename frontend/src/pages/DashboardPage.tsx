@@ -154,13 +154,11 @@ export function DashboardPage() {
 
     Promise.all([
       api.getEvidence(effectiveId),
-      api.getTransactions(effectiveId, page),
       api.getWhyFlagged(effectiveId).catch(() => null),
     ])
-      .then(([evBundle, txns, why]) => {
+      .then(([evBundle, why]) => {
         if (cancelled) return;
         setBundle(evBundle);
-        setTransactions(txns);
         setWhyFlagged(why);
       })
       .catch((error: unknown) => {
@@ -184,6 +182,19 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
+  }, [effectiveId]);
+
+  useEffect(() => {
+    if (!effectiveId) return;
+    let cancelled = false;
+    api.getTransactions(effectiveId, page)
+      .then((txns) => {
+        if (!cancelled) setTransactions(txns);
+      })
+      .catch((requestError: unknown) => {
+        if (!cancelled) setLoadError(requestError instanceof Error ? requestError.message : "Unable to load transactions.");
+      });
+    return () => { cancelled = true; };
   }, [effectiveId, page]);
 
   if (loading) return <LoadingPanel label="Loading risk dashboard" />;

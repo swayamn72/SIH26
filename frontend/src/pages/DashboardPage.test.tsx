@@ -75,6 +75,9 @@ describe("DashboardPage", () => {
 
     await waitFor(() => expect(getTransactions).toHaveBeenLastCalledWith(1, 2));
     expect(await screen.findByText("Page 2")).toBeInTheDocument();
+    expect(api.getEvidence).toHaveBeenCalledTimes(1);
+    expect(api.getWhyFlagged).toHaveBeenCalledTimes(1);
+    expect(api.getNarrative).toHaveBeenCalledTimes(1);
   });
 
   it("ignores stale transaction responses after changing cases", async () => {

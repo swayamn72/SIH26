@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight, FileText, GitGraph, Network, RefreshCw, Route, X } from "lucide-react";
 import { CaseGraphCanvas } from "../components/CaseGraphCanvas";
@@ -14,9 +14,15 @@ import {
 
 const TXN_PAGE_SIZE = 10;
 
+function riskPresentation(score: number) {
+  if (score >= 0.75) return { label: "High-risk finding present", tone: "danger" as const };
+  if (score >= 0.4) return { label: "Moderate-risk finding present", tone: "warning" as const };
+  if (score > 0) return { label: "Finding present", tone: "neutral" as const };
+  return { label: "No graph finding", tone: "neutral" as const };
+}
+
 function caseStatus(graph: CaseGraph) {
-  const peak = Math.max(0, ...graph.findings.map((finding) => finding.risk_score));
-  return peak >= 0.75 ? "Confirmed suspicious" : peak > 0 ? "Review required" : "No active finding";
+  return riskPresentation(Math.max(0, ...graph.findings.map((finding) => finding.risk_score)));
 }
 
 function nodeKind(node: CaseGraphNode) {
@@ -38,6 +44,8 @@ export function CaseGraphPage() {
   const [loadingDrawer, setLoadingDrawer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const drawerCloseRef = useRef<HTMLButtonElement>(null);
+  const drawerOriginRef = useRef<HTMLElement | null>(null);
 
   const loadCase = async () => {
     if (!Number.isFinite(id)) return;
@@ -63,12 +71,14 @@ export function CaseGraphPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  const selectedNodeIsInFinding = !!selectedNode && !!finding?.node_sequence.includes(selectedNode.id);
+
   useEffect(() => {
     if (!selectedNode || !Number.isFinite(id)) return;
     let cancelled = false;
     setLoadingDrawer(true);
     api
-      .getCaseNodeTransactions(id, selectedNode.id, offset, TXN_PAGE_SIZE, finding?.id)
+      .getCaseNodeTransactions(id, selectedNode.id, offset, TXN_PAGE_SIZE, selectedNodeIsInFinding ? finding?.id : undefined)
       .then((page) => {
         if (!cancelled) setTransactions(page);
       })
@@ -81,7 +91,29 @@ export function CaseGraphPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, selectedNode, offset, finding?.id]);
+  }, [id, selectedNode, offset, finding?.id, selectedNodeIsInFinding]);
+
+  const closeDrawer = () => {
+    setSelectedNode(null);
+    drawerOriginRef.current?.focus();
+    drawerOriginRef.current = null;
+  };
+
+  useEffect(() => {
+    if (!selectedNode) return;
+    if (!drawerOriginRef.current && document.activeElement instanceof HTMLElement) {
+      drawerOriginRef.current = document.activeElement;
+    }
+    drawerCloseRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDrawer();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedNode]);
 
   const selectedFindingEdgeIds = finding?.edge_ids || [];
   const selectedPath = useMemo(
@@ -142,7 +174,7 @@ export function CaseGraphPage() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="truncate text-[16px] font-semibold text-ink-950">{activeCase.name}</h1>
-                <Badge tone={graph.findings.length ? "danger" : "neutral"} dot>{caseStatus(graph)}</Badge>
+                <Badge tone={caseStatus(graph).tone} dot>{caseStatus(graph).label}</Badge>
               </div>
               <p className="mt-0.5 text-[11px] text-ink-500">
                 Case #{activeCase.id} · {activeCase.statement_ids.length} statements · analysis v{activeCase.analysis_version}
@@ -208,7 +240,7 @@ export function CaseGraphPage() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold text-ink-900">{item.hop_count}-hop conserved flow</span>
-                      <Badge tone="danger">Risk {Math.round(item.risk_score * 100)}</Badge>
+                      <Badge tone={riskPresentation(item.risk_score).tone}>{riskPresentation(item.risk_score).label.replace(" finding present", "")}: {Math.round(item.risk_score * 100)}</Badge>
                     </div>
                     <p className="mt-1 text-[11px] text-ink-500">{item.edge_ids.length} linked transfers · {item.source_row_ids.length} source rows</p>
                   </button>
@@ -258,14 +290,14 @@ export function CaseGraphPage() {
       </div>
 
       {selectedNode && (
-        <div className="fixed inset-y-0 right-0 z-[60] flex w-full max-w-[460px] flex-col border-l border-ink-200 bg-white shadow-2xl" role="dialog" aria-label="Node transaction evidence">
+        <div className="fixed inset-y-0 right-0 z-[60] flex w-full max-w-[460px] flex-col border-l border-ink-200 bg-white shadow-2xl" role="dialog" aria-modal="true" aria-label="Node transaction evidence">
           <header className="flex items-start justify-between gap-3 border-b border-ink-100 px-5 py-4">
             <div className="min-w-0">
               <p className="label-micro">{nodeKind(selectedNode)}</p>
               <h2 className="mt-1 truncate text-[15px] font-semibold text-ink-950">{selectedNode.label}</h2>
-              <p className="mt-1 text-[11px] text-ink-500">{selectedNode.institution || "Institution unavailable"} · source-backed transaction rows</p>
+              <p className="mt-1 text-[11px] text-ink-500">{selectedNode.institution || "Institution unavailable"} · {selectedNodeIsInFinding ? "selected-finding source rows" : "all source-backed transaction rows"}</p>
             </div>
-            <button onClick={() => setSelectedNode(null)} className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 hover:text-ink-700" aria-label="Close transaction drawer"><X className="h-4 w-4" /></button>
+            <button ref={drawerCloseRef} onClick={closeDrawer} className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 hover:text-ink-700" aria-label="Close transaction drawer"><X className="h-4 w-4" /></button>
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {loadingDrawer ? <p className="text-xs text-ink-500">Loading transaction evidence…</p> : !transactions?.items.length ? (

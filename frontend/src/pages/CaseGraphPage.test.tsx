@@ -1,11 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CaseGraphPage } from "./CaseGraphPage";
 import { api } from "../lib/api";
 
 vi.mock("../components/CaseGraphCanvas", () => ({
-  CaseGraphCanvas: ({ onNodeClick }: { onNodeClick: (id: string) => void }) => <button onClick={() => onNodeClick("node-a")}>Select Rohan Kumar</button>,
+  CaseGraphCanvas: ({ onNodeClick }: { onNodeClick: (id: string) => void }) => (
+    <><button onClick={() => onNodeClick("node-a")}>Select Rohan Kumar</button><button onClick={() => onNodeClick("node-c")}>Select benign merchant</button></>
+  ),
 }));
 
 const graph = {
@@ -13,6 +15,7 @@ const graph = {
   nodes: [
     { id: "node-a", kind: "subject_account", label: "Rohan Kumar", institution: "Demo Bank", risk_tier: "high", evidence: {} },
     { id: "node-b", kind: "counterparty_observation", label: "Shell Co", institution: null, risk_tier: "normal", evidence: {} },
+    { id: "node-c", kind: "counterparty_observation", label: "Benign merchant", institution: null, risk_tier: "normal", evidence: {} },
   ],
   edges: [{ id: "edge-a", source: "node-a", target: "node-b", amount: 475000, txn_date: "2026-08-18", source_statement_ids: [1], source_row_ids: ["row-1"], resolution_method: "mirror", is_finding_edge: true }],
   findings: [{ id: "finding-a", kind: "conserved_flow_cycle", risk_score: 0.92, hop_count: 3, node_sequence: ["node-a", "node-b"], edge_ids: ["edge-a"], source_row_ids: ["row-1"] }],
@@ -25,6 +28,8 @@ function renderPage() {
 }
 
 describe("CaseGraphPage", () => {
+  afterEach(() => cleanup());
+
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(api, "listCases").mockResolvedValue([{ id: 7, name: "Project Trident", description: "Three-statement ring", created_ts: "2026-08-18", analyzed_ts: "2026-08-20", analysis_version: 1, statement_ids: [1, 2, 3] }]);
@@ -42,5 +47,15 @@ describe("CaseGraphPage", () => {
     expect(await screen.findByRole("dialog", { name: "Node transaction evidence" })).toBeInTheDocument();
     expect(screen.getByText("transfer to Shell Co")).toBeInTheDocument();
     await waitFor(() => expect(api.getCaseNodeTransactions).toHaveBeenCalledWith(7, "node-a", 0, 10, "finding-a"));
+  });
+
+  it("uses all node transactions for a node outside the selected finding and closes on Escape", async () => {
+    renderPage();
+    await screen.findByRole("heading", { name: "Project Trident" });
+    fireEvent.click(screen.getByRole("button", { name: "Select benign merchant" }));
+    const drawer = await screen.findByRole("dialog", { name: "Node transaction evidence" });
+    await waitFor(() => expect(api.getCaseNodeTransactions).toHaveBeenCalledWith(7, "node-c", 0, 10, undefined));
+    fireEvent.keyDown(drawer, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Node transaction evidence" })).not.toBeInTheDocument());
   });
 });
