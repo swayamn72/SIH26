@@ -92,6 +92,78 @@ class InvestigatorLabel(SQLModel, table=True):
     labeled_ts: datetime = Field(default_factory=datetime.utcnow)
 
 
+class DemoLoad(SQLModel, table=True):
+    """Registry for synthetic demo records eligible for demo-only reset."""
+
+    __tablename__ = "demo_loads"
+    tag: str = Field(primary_key=True, max_length=64)
+    case_id: Optional[int] = Field(default=None, foreign_key="cases.id")
+    statement_ids: list[int] = Field(default=[], sa_column=Column(JSON))
+    status: str = Field(default="loading", max_length=32)
+    created_ts: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Case(SQLModel, table=True):
+    """A persisted investigation containing a selected set of confirmed statements."""
+
+    __tablename__ = "cases"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(max_length=255)
+    description: Optional[str] = Field(default=None, max_length=2048)
+    created_ts: datetime = Field(default_factory=datetime.utcnow)
+    analyzed_ts: Optional[datetime] = None
+    analysis_version: int = 0
+
+
+class CaseStatement(SQLModel, table=True):
+    __tablename__ = "case_statements"
+    case_id: int = Field(foreign_key="cases.id", primary_key=True)
+    statement_id: int = Field(foreign_key="statements.id", primary_key=True)
+    added_ts: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CaseAccountNode(SQLModel, table=True):
+    __tablename__ = "case_account_nodes"
+    id: str = Field(primary_key=True, max_length=64)
+    case_id: int = Field(foreign_key="cases.id", index=True)
+    kind: str = Field(max_length=48)
+    label: str = Field(max_length=255)
+    institution: Optional[str] = Field(default=None, max_length=255)
+    subject_statement_id: Optional[int] = Field(default=None, foreign_key="statements.id")
+    evidence: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+
+
+class CaseTransferEdge(SQLModel, table=True):
+    __tablename__ = "case_transfer_edges"
+    id: str = Field(primary_key=True, max_length=64)
+    case_id: int = Field(foreign_key="cases.id", index=True)
+    source_node_id: str = Field(max_length=64, index=True)
+    target_node_id: str = Field(max_length=64, index=True)
+    amount: float
+    txn_date: date = Field(index=True)
+    reference_fingerprint: Optional[str] = Field(default=None, max_length=64)
+    source_statement_ids: list[int] = Field(default=[], sa_column=Column(JSON))
+    source_row_ids: list[str] = Field(default=[], sa_column=Column(JSON))
+    direction: str = Field(default="outgoing_transfer", max_length=32)
+    resolution_method: str = Field(default="unresolved_name_not_merged", max_length=64)
+    evidence: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+
+
+class CaseFinding(SQLModel, table=True):
+    __tablename__ = "case_findings"
+    id: str = Field(primary_key=True, max_length=64)
+    case_id: int = Field(foreign_key="cases.id", index=True)
+    kind: str = Field(max_length=64)
+    risk_score: float = 0.0
+    hop_count: int = 0
+    node_sequence: list[str] = Field(default=[], sa_column=Column(JSON))
+    edge_ids: list[str] = Field(default=[], sa_column=Column(JSON))
+    source_row_ids: list[str] = Field(default=[], sa_column=Column(JSON))
+    source_statement_ids: list[int] = Field(default=[], sa_column=Column(JSON))
+    detail: dict[str, Any] = Field(sa_column=Column(JSON))
+    created_ts: datetime = Field(default_factory=datetime.utcnow)
+
+
 class TransferDataset(SQLModel, table=True):
     """An ingested interbank transfer ledger (e.g. an AML transaction network export).
 

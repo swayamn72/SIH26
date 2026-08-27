@@ -40,5 +40,10 @@ class GroqClient:
         )
         return response.choices[0].message.content.strip()
 
+    def availability(self) -> tuple[bool, str | None]:
+        if not os.environ.get("GROQ_API_KEY", ""):
+            return False, "groq_api_key_missing"
+        return True, None
+
     def is_available(self) -> bool:
-        return bool(os.environ.get("GROQ_API_KEY", ""))
+        return self.availability()[0]

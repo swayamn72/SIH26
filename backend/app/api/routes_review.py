@@ -366,8 +366,14 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
             from app.categorization.merchant_normalizer import normalize_counterparty_name
             cp_norm = normalize_counterparty_name(cp_raw)
             
+            # A name is an observation, not cross-statement identity evidence.  Keep
+            # same-name counterparties local to their statement; case analysis may
+            # only resolve accounts through exact transfer evidence.
             existing = db.exec(
-                select(Counterparty).where(Counterparty.canonical_name == cp_norm)
+                select(Counterparty).where(
+                    Counterparty.canonical_name == cp_norm,
+                    Counterparty.first_seen_statement_id == statement_id,
+                )
             ).first()
             if existing:
                 txn.counterparty_id = existing.id
@@ -381,8 +387,7 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
                     is_self_transfer=is_self
                 )
                 db.add(cp)
-                db.commit()
-                db.refresh(cp)
+                db.flush()
                 txn.counterparty_id = cp.id
                 counterparty_cache[cp_norm] = cp.id
 
@@ -426,36 +431,49 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
     anomaly_score: float = 0.0
     anomaly_detail: dict[str, Any] | None = None
     try:
-        # Construct feature matrix using past statements + current statement
-        past_evidences = db.exec(select(EvidenceBundleRecord)).all()
-        past_features_list = []
+        # Build a statement-level reference cohort. Exclude the current statement
+        # before fitting so reconfirming it cannot add an earlier copy of itself to
+        # its own cohort and change the answer.
+        reference_evidences = db.exec(
+            select(EvidenceBundleRecord).where(EvidenceBundleRecord.statement_id != statement_id)
+        ).all()
+        reference_rows: list[list[float]] = []
         feature_names = list(feature_values.keys())
-        for ev in past_evidences:
-            if ev.json_blob and isinstance(ev.json_blob, dict):
-                feats = ev.json_blob.get("features", [])
-                if feats:
-                    pf = {f["name"]: f.get("value", 0.0) for f in feats if f.get("value") is not None}
-                    row_vec = [pf.get(name, 0.0) for name in feature_names]
-                    past_features_list.append(row_vec)
-        
-        current_row_vec = [feature_values.get(name, 0.0) for name in feature_names]
-        matrix_data = past_features_list + [current_row_vec]
-        feature_matrix = pd.DataFrame(matrix_data).fillna(0).to_numpy()
+        for evidence in reference_evidences:
+            if evidence.json_blob and isinstance(evidence.json_blob, dict):
+                features = evidence.json_blob.get("features", [])
+                if features:
+                    saved_values = {
+                        feature["name"]: feature.get("value", 0.0)
+                        for feature in features
+                        if feature.get("value") is not None
+                    }
+                    reference_rows.append([float(saved_values.get(name, 0.0)) for name in feature_names])
 
-        mad_flagged = compute_mad_anomaly(feature_matrix, feature_names)
-
-        iso_frac, top_iso, _ = compute_isolation_forest_anomaly(
-            feature_matrix, feature_names
+        reference_matrix = pd.DataFrame(reference_rows).fillna(0).to_numpy()
+        current_row = pd.Series(feature_values).reindex(feature_names, fill_value=0.0).to_numpy(dtype=float)
+        mad_flagged = compute_mad_anomaly(reference_matrix, feature_names, current_row)
+        iso_score, top_iso, anomaly_metadata = compute_isolation_forest_anomaly(
+            reference_matrix, current_row, feature_names
         )
-
-        anomaly_score = (len(mad_flagged) / max(len(feature_values), 1) + iso_frac) / 2.0
-        anomaly_detail = {
-            "isolation_forest_score": iso_frac,
-            "top_contributing_features": top_iso,
-            "mad_flagged_features": mad_flagged,
-        }
+        if iso_score is None:
+            anomaly_detail = {
+                "isolation_forest_score": None,
+                "top_contributing_features": [],
+                "mad_flagged_features": {},
+                **anomaly_metadata,
+            }
+        else:
+            anomaly_score = (len(mad_flagged) / max(len(feature_values), 1) + iso_score) / 2.0
+            anomaly_detail = {
+                "isolation_forest_score": iso_score,
+                "top_contributing_features": top_iso,
+                "mad_flagged_features": mad_flagged,
+                **anomaly_metadata,
+            }
     except Exception as exc:
-        logger.warning("MAD anomaly scoring skipped: %s", exc)
+        logger.warning("Anomaly scoring skipped: %s", exc)
+        anomaly_detail = {"availability_reason": f"anomaly_scoring_failed: {exc.__class__.__name__}"}
 
     supervised_probability: float | None = None
     if supervised_scorer.available:
@@ -496,13 +514,30 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
         rule_score=rule_score,
         anomaly_score=anomaly_score,
         decision_reason=decision_reason,
+        supervised_detail={
+            "calibrated_probability": supervised_probability,
+            "model_type": "supervised" if supervised_probability is not None else None,
+            "model_version": supervised_scorer.model_version,
+            "feature_schema": supervised_scorer.feature_names,
+            "contributions_available": False,
+            "fallback_reason": None if supervised_probability is not None else supervised_scorer.unavailable_reason,
+        },
     )
     bundle_json = evidence_bundle_to_json(bundle)
 
-    ev_rec = EvidenceBundleRecord(
-        statement_id=statement_id,
-        json_blob=bundle_json,
-    )
+    # Confirm is a recomputation, not an append-only event: one statement has one
+    # current evidence bundle and one current set of derived cycle records.
+    for old_record in db.exec(
+        select(EvidenceBundleRecord).where(EvidenceBundleRecord.statement_id == statement_id)
+    ).all():
+        db.delete(old_record)
+    for old_cycle in db.exec(
+        select(Cycle).where(Cycle.statement_id == statement_id)
+    ).all():
+        db.delete(old_cycle)
+    db.flush()
+
+    ev_rec = EvidenceBundleRecord(statement_id=statement_id, json_blob=bundle_json)
     db.add(ev_rec)
 
     for cycle_data in cycles:

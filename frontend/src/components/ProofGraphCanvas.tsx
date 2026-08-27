@@ -5,6 +5,9 @@ type GraphNode = { id: string; label: string; flow: number };
 type GraphEdge = { source: string; target: string; amount: number; channel: string; row_id: string };
 type CycleInfo = { cycle_id: string; nodes: string[]; cycle_risk_score: number; hop_count: number; contributing_row_ids?: string[] };
 
+const strings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
 type ProofGraphCanvasProps = {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -46,28 +49,39 @@ export function ProofGraphCanvas({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const maxFlow = Math.max(...nodes.map((n) => (typeof n.flow === "number" ? n.flow : 0)), 1);
+    const safeNodes = Array.isArray(nodes)
+      ? nodes.filter((node): node is GraphNode => typeof node?.id === "string" && typeof node.label === "string")
+      : [];
+    const knownNodeIds = new Set(safeNodes.map((node) => node.id));
+    const safeEdges = Array.isArray(edges)
+      ? edges.filter(
+          (edge): edge is GraphEdge =>
+            typeof edge?.source === "string" &&
+            typeof edge.target === "string" &&
+            typeof edge.row_id === "string" &&
+            knownNodeIds.has(edge.source) &&
+            knownNodeIds.has(edge.target),
+        )
+      : [];
+    const safeCycles = Array.isArray(cycles) ? cycles : [];
+    const maxFlow = Math.max(...safeNodes.map((n) => (Number.isFinite(n.flow) ? n.flow : 0)), 1);
 
-    // Collect all mule node IDs and mule edge row IDs
+    // Collect all mule node IDs and mule edge row IDs.
     const cycleNodeIds = new Set<string>();
-    const cycleEdgeRowIds = new Set<string>(muleRowIds);
+    const cycleEdgeRowIds = new Set<string>(strings(muleRowIds));
 
-    cycles.forEach((c) => {
-      if (c.nodes) {
-        c.nodes.forEach((n) => cycleNodeIds.add(n));
-      }
-      if (c.contributing_row_ids) {
-        c.contributing_row_ids.forEach((r) => cycleEdgeRowIds.add(r));
-      }
+    safeCycles.forEach((c) => {
+      strings(c.nodes).forEach((nodeId) => cycleNodeIds.add(nodeId));
+      strings(c.contributing_row_ids).forEach((rowId) => cycleEdgeRowIds.add(rowId));
     });
 
-    muleNodes.forEach((n) => cycleNodeIds.add(n));
+    strings(muleNodes).forEach((nodeId) => cycleNodeIds.add(nodeId));
 
     const isAccountNode = (id: string) =>
       id.startsWith("ACCT_") || id === "ACCT_SUBJECT" || id === "ACCT_MERGED";
 
     // Sort nodes deterministically: Account node first, then other nodes alphabetically by ID
-    const sortedNodes = [...nodes].sort((a, b) => {
+    const sortedNodes = [...safeNodes].sort((a, b) => {
       const aIsAcct = isAccountNode(a.id);
       const bIsAcct = isAccountNode(b.id);
       if (aIsAcct && !bIsAcct) return -1;
@@ -100,7 +114,7 @@ export function ProofGraphCanvas({
           },
         };
       }),
-      ...edges.map((e) => {
+      ...safeEdges.map((e) => {
         const amtVal = typeof e.amount === "number" ? e.amount : 0;
         const isMuleEdge =
           cycleEdgeRowIds.has(e.row_id) ||

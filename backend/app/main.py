@@ -12,9 +12,12 @@ from app.api.routes_graph import router as graph_router
 from app.api.routes_banks import router as banks_router
 from app.api.routes_report import router as report_router
 from app.api.routes_config import router as config_router
+from app.api.routes_cases import router as cases_router
+from app.api.routes_demo import router as demo_router
+from app.api.routes_sar import router as sar_router
 from app.db.session import engine
 from app.db.models import SQLModel
-from app.guardrails.privacy_guard import PIIRedactionMiddleware, PIIFilter
+from app.guardrails.privacy_guard import PIIFilter
 import logging
 
 app = FastAPI(
@@ -31,7 +34,9 @@ async def on_startup():
     SQLModel.metadata.create_all(engine)
     logging.getLogger().addFilter(PIIFilter())
 
-app.add_middleware(PIIRedactionMiddleware)
+# API responses intentionally preserve investigator evidence. PII protection for
+# provider requests is enforced by the narrative evidence projection, while this
+# filter redacts supported identifiers from application log messages.
 
 
 app.include_router(health_router, prefix="/api", tags=["health"])
@@ -42,6 +47,9 @@ app.include_router(graph_router, prefix="/api/statements", tags=["graph"])
 app.include_router(banks_router, prefix="/api/intel", tags=["bank-intelligence"])
 app.include_router(report_router, prefix="/api/statements", tags=["report"])
 app.include_router(config_router, prefix="/api/config", tags=["config"])
+app.include_router(cases_router, prefix="/api/cases", tags=["cases"])
+app.include_router(demo_router, prefix="/api/demo", tags=["demo"])
+app.include_router(sar_router, prefix="/api/cases", tags=["sar-draft"])
 
 
 static_dir = Path(__file__).parents[2] / "frontend" / "dist"

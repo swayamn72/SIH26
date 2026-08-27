@@ -15,6 +15,7 @@ from app.db.models import (
     Statement,
     Transaction,
 )
+from app.db.case_lifecycle import invalidate_cases_for_statements, purge_cases
 from app.db.session import get_session
 from app.institutions.bank_identity import bank_name, extract_preamble, resolve_subject_bank
 from app.guardrails.ood_detector import (
@@ -128,7 +129,11 @@ def delete_statement(statement_id: int, db: Session = Depends(get_session)):
     if not stmt:
         raise HTTPException(status_code=404, detail="Statement not found")
 
-    # Delete related records
+    # Graph findings/SAR inputs are derived from this source statement. Invalidate
+    # their entire affected case before deleting source records.
+    invalidate_cases_for_statements(db, [statement_id])
+
+    # Delete related source records.
     db.query(Transaction).filter(Transaction.statement_id == statement_id).delete()
     db.query(EvidenceBundleRecord).filter(
         EvidenceBundleRecord.statement_id == statement_id
@@ -147,6 +152,9 @@ def delete_statement(statement_id: int, db: Session = Depends(get_session)):
 
 @router.post("/purge/all")
 def purge_all_data(db: Session = Depends(get_session)):
+    # Delete materialized case evidence and demo pointers first so neither graphs
+    # nor SAR drafts retain data after a source purge.
+    purge_cases(db)
     db.query(Transaction).delete()
     db.query(EvidenceBundleRecord).delete()
     db.query(Cycle).delete()

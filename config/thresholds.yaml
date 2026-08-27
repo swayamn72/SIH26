@@ -41,10 +41,16 @@ structuring:
   - 10000
 benford:
   significance_level: 0.95
+  # Chi-square critical value for 8 degrees of freedom at alpha=0.05.
+  critical_value: 15.507
 cycle:
   max_cycle_length: 6
   dense_component_edge_cap: 1000
   min_cycle_risk_score: 0.6
+case_graph:
+  mirrored_reference:
+    min_alphanumeric_length: 6
+    generic_tokens: [NA, NONE, UNKNOWN, REF, UTR, TRANSACTION, TRANSFER]
 bank_intelligence:
   flow_cycles:
     max_hops: 6
@@ -126,8 +132,12 @@ decision:
   confirmed_suspicious_min: 75
   likely_legitimate_max: 25
 supervised:
-  min_labeled_accounts: 200
+  # Existing checked-in artifacts have no provenance manifest and must not fuse.
+  enabled: false
 anomaly:
+  # Current statement is scored against this many other statements; below this,
+  # anomaly scoring is explicitly unavailable rather than self-training.
+  minimum_reference_statements: 3
   isolation_forest:
     n_estimators: 200
     random_state: 42

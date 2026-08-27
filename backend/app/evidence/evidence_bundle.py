@@ -2,7 +2,7 @@ from typing import Any, Optional
 
 from app.evidence.evidence_schema import (
     EvidenceBundle, AccountSummary, FinalDecision, RuleEvidence,
-    FeatureEvidence, CycleEvidence, AnomalyDetail, GuardrailLog,
+    FeatureEvidence, CycleEvidence, AnomalyDetail, GuardrailLog, SupervisedDetail,
 )
 
 
@@ -28,6 +28,7 @@ def assemble_evidence_bundle(
     rule_score: Optional[float] = 0.0,
     anomaly_score: Optional[float] = 0.0,
     decision_reason: Optional[str] = "",
+    supervised_detail: Optional[dict[str, Any]] = None,
 ) -> EvidenceBundle:
     bundle = EvidenceBundle(
         account_summary=AccountSummary(
@@ -80,10 +81,15 @@ def assemble_evidence_bundle(
             for c in cycles
         ],
         anomaly_detail=AnomalyDetail(
-            isolation_forest_score=anomaly_detail.get("isolation_forest_score") if anomaly_detail else None,
-            top_contributing_features=anomaly_detail.get("top_contributing_features", []) if anomaly_detail else [],
-            mad_flagged_features=anomaly_detail.get("mad_flagged_features", {}) if anomaly_detail else {},
+            isolation_forest_score=anomaly_detail.get("isolation_forest_score"),
+            top_contributing_features=anomaly_detail.get("top_contributing_features", []),
+            mad_flagged_features=anomaly_detail.get("mad_flagged_features", {}),
+            seed=anomaly_detail.get("seed", 42),
+            availability_reason=anomaly_detail.get("availability_reason"),
+            reference_cohort_size=anomaly_detail.get("reference_cohort_size"),
+            minimum_reference_cohort_size=anomaly_detail.get("minimum_reference_cohort_size"),
         ) if anomaly_detail else None,
+        supervised_detail=SupervisedDetail(**supervised_detail) if supervised_detail else None,
         guardrail_log=GuardrailLog(
             ood_check_passed=ood_check_passed,
             ood_score=ood_score,

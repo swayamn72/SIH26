@@ -76,9 +76,8 @@ def _resolve_threshold(token: str, feature_values: dict[str, Any]) -> float:
             numeric_vals.sort()
             idx = int(len(numeric_vals) * pct)
             return numeric_vals[min(idx, len(numeric_vals) - 1)]
-    critical_vals = {"critical_value_95": 15.507}
-    if token in critical_vals:
-        return critical_vals[token]
+    if token == "critical_value_95":
+        return float(load_config("thresholds").get("benford", {}).get("critical_value", 15.507))
     try:
         return float(token)
     except ValueError:

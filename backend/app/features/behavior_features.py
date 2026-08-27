@@ -1,73 +1,105 @@
-from decimal import Decimal
 from typing import Any
 
 import pandas as pd
 
 
+_RETENTION_FORMULA = "1 - (one_to_one_matched_24h_outflow) / (total_inflow)"
+_HOLDING_FORMULA = "median time from credit to one_to_one_matched debit within 24h"
+_TURNOVER_FORMULA = "(total_debit + total_credit) / positive_average_daily_balance"
+
+
+def _one_to_one_24h_matches(df: pd.DataFrame) -> list[tuple[int, int]]:
+    """Pair each credit with at most one later debit in its inclusive 24-hour window.
+
+    A debit is consumed once matched, preventing one outflow from being counted
+    against several credits. The statement order is used as a stable tie-breaker
+    for identical timestamps; transactions at the exact same timestamp are not
+    ordered closely enough to infer a credit-to-debit flow.
+    """
+    if df.empty or "txn_date" not in df.columns:
+        return []
+
+    ordered = df.copy()
+    ordered["_source_index"] = ordered.index
+    ordered = ordered[ordered["txn_date"].notna()].sort_values(
+        ["txn_date", "_source_index"], kind="stable"
+    )
+    used_debits: set[int] = set()
+    matches: list[tuple[int, int]] = []
+
+    for credit_index, credit_row in ordered.iterrows():
+        credit_amount = credit_row.get("credit_amount")
+        credit_time = credit_row.get("txn_date")
+        if pd.isna(credit_amount) or credit_amount <= 0 or pd.isna(credit_time):
+            continue
+
+        window_end = credit_time + pd.Timedelta(hours=24)
+        candidates = ordered[
+            (ordered["txn_date"] > credit_time)
+            & (ordered["txn_date"] <= window_end)
+            & (ordered["debit_amount"].notna())
+            & (ordered["debit_amount"] > 0)
+        ]
+        for debit_index, _ in candidates.iterrows():
+            if debit_index not in used_debits:
+                used_debits.add(debit_index)
+                matches.append((credit_index, debit_index))
+                break
+
+    return matches
+
+
 def net_retention_ratio(df: pd.DataFrame) -> tuple[float | None, str, str]:
-    if df.empty:
-        return None, "1 - (matched_24h_outflow) / (total_inflow)", "Net retention ratio"
+    if df.empty or "credit_amount" not in df.columns:
+        return None, _RETENTION_FORMULA, "Net retention ratio"
+
     credits = df["credit_amount"].dropna()
     total_credit = float(credits.sum()) if not credits.empty else 0.0
     if total_credit <= 0:
-        return 1.0, "1 - (matched_24h_outflow) / (total_inflow)", "Net retention ratio"
+        return 1.0, _RETENTION_FORMULA, "Net retention ratio"
 
-    outflow_24h = 0.0
-    for _, credit_row in df.iterrows():
-        if pd.notna(credit_row.get("credit_amount")) and credit_row["credit_amount"] > 0:
-            txn_time = credit_row.get("txn_date")
-            if pd.notna(txn_time):
-                window = df[
-                    (df["txn_date"] > txn_time)
-                    & (df["debit_amount"].notna())
-                    & (df["debit_amount"] > 0)
-                ]
-                if not window.empty:
-                    outflow_24h += float(window["debit_amount"].iloc[0])
-
+    matched_debit_indexes = [debit_index for _, debit_index in _one_to_one_24h_matches(df)]
+    outflow_24h = float(df.loc[matched_debit_indexes, "debit_amount"].sum()) if matched_debit_indexes else 0.0
     retention = 1.0 - (outflow_24h / total_credit)
-    return float(max(retention, 0)), "1 - (matched_24h_outflow) / (total_inflow)", "Net retention ratio"
+    return float(max(retention, 0.0)), _RETENTION_FORMULA, "Net retention ratio"
 
 
 def median_holding_time_hours(df: pd.DataFrame) -> tuple[float | None, str, str]:
     if df.empty or "txn_date" not in df.columns:
-        return None, "median time from credit to matched debit", "Median holding time"
+        return None, _HOLDING_FORMULA, "Median holding time"
+
     matched_pairs: list[float] = []
-    sorted_df = df.sort_values("txn_date")
-    for _, credit_row in sorted_df.iterrows():
-        if pd.notna(credit_row.get("credit_amount")) and credit_row["credit_amount"] > 0:
-            credit_date = credit_row["txn_date"]
-            follow_debits = sorted_df[
-                (sorted_df["txn_date"] > credit_date)
-                & (sorted_df["debit_amount"].notna())
-                & (sorted_df["debit_amount"] > 0)
-            ]
-            if not follow_debits.empty:
-                next_debit_date = follow_debits.iloc[0]["txn_date"]
-                hours = (next_debit_date - credit_date).total_seconds() / 3600
-                if hours > 0:
-                    matched_pairs.append(hours)
+    for credit_index, debit_index in _one_to_one_24h_matches(df):
+        credit_date = df.at[credit_index, "txn_date"]
+        debit_date = df.at[debit_index, "txn_date"]
+        hours = (debit_date - credit_date).total_seconds() / 3600
+        if hours > 0:
+            matched_pairs.append(hours)
 
     if not matched_pairs:
-        return None, "median time from credit to matched debit", "Median holding time"
+        return None, _HOLDING_FORMULA, "Median holding time"
 
-    matched_pairs.sort()
-    median = matched_pairs[len(matched_pairs) // 2]
-    return float(median), "median time from credit to matched debit", "Median holding time"
+    return float(pd.Series(matched_pairs).median()), _HOLDING_FORMULA, "Median holding time"
 
 
 def turnover_ratio(df: pd.DataFrame, avg_daily_balance: float | None = None) -> tuple[float | None, str, str]:
+    """Return debit-plus-credit turnover only when the balance dependency is valid.
+
+    Turnover intentionally counts both positive debit and credit flows. A missing,
+    zero, or negative average daily balance makes the ratio unavailable rather than
+    inventing a denominator; a statement with no positive flow has turnover zero.
+    """
     if df.empty:
-        return None, "(total_debit + total_credit) / average_daily_balance", "Turnover ratio"
+        return None, _TURNOVER_FORMULA, "Turnover ratio; debit plus credit over positive average daily balance"
     total_debit = float(df["debit_amount"].dropna().sum())
     total_credit = float(df["credit_amount"].dropna().sum())
     total_flow = total_debit + total_credit
     if total_flow <= 0:
-        return 0.0, "(total_debit + total_credit) / average_daily_balance", "Turnover ratio"
+        return 0.0, _TURNOVER_FORMULA, "Turnover ratio; debit plus credit over positive average daily balance"
     if avg_daily_balance is None or avg_daily_balance <= 0:
-        return None, "(total_debit + total_credit) / average_daily_balance", "Turnover ratio"
+        return None, _TURNOVER_FORMULA, "Unavailable: average daily balance is missing, zero, or negative"
     ratio = total_flow / avg_daily_balance
-    return float(ratio), "(total_debit + total_credit) / average_daily_balance", "Turnover ratio"
+    return float(ratio), _TURNOVER_FORMULA, "Turnover ratio; debit plus credit over positive average daily balance"
 
 
 def average_daily_balance(df: pd.DataFrame) -> tuple[float | None, str, str]:

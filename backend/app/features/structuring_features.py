@@ -61,7 +61,10 @@ def round_number_ratio(df: pd.DataFrame) -> tuple[float | None, str, str]:
 
 def benford_deviation_score(df: pd.DataFrame) -> tuple[float | None, str, str]:
     cfg = load_config("thresholds")
-    sig_level = cfg.get("benford", {}).get("significance_level", 0.95)
+    # The rule scorer resolves this configured critical value for R4. Keep the
+    # feature itself as the raw chi-square statistic so evidence remains useful
+    # across threshold changes.
+    _critical_value = cfg.get("benford", {}).get("critical_value", 15.507)
 
     if df.empty:
         return None, "chi_sq = sum((observed - expected)^2 / expected)", "Benford deviation"
