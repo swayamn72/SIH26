@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session, select
 
 from app.db.models import (
@@ -22,14 +22,25 @@ from app.graph.case_graph import analyze_case, case_graph_payload
 router = APIRouter()
 
 
-class CaseCreateIn(BaseModel):
+class _CaseNameIn(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Case name must not be blank")
+        return value
+
+
+class CaseCreateIn(_CaseNameIn):
     description: Optional[str] = Field(default=None, max_length=2048)
     statement_ids: list[int] = []
 
 
-class CaseUpdateIn(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
+class CaseUpdateIn(_CaseNameIn):
+    pass
 
 
 class CaseOut(BaseModel):
@@ -93,7 +104,7 @@ def create_case(body: CaseCreateIn, db: Session = Depends(get_session)):
     # Validate first: a failed request must never create a partial investigation.
     for statement_id in set(body.statement_ids):
         _confirmed_statement_or_422(db, statement_id)
-    case = Case(name=body.name.strip(), description=body.description)
+    case = Case(name=body.name, description=body.description)
     db.add(case)
     db.flush()
     for statement_id in sorted(set(body.statement_ids)):
@@ -116,7 +127,7 @@ def get_case(case_id: int, db: Session = Depends(get_session)):
 @router.patch("/{case_id}", response_model=CaseOut)
 def rename_case(case_id: int, body: CaseUpdateIn, db: Session = Depends(get_session)):
     case = _case_or_404(db, case_id)
-    case.name = body.name.strip()
+    case.name = body.name
     db.add(case)
     db.commit()
     db.refresh(case)
@@ -225,7 +236,13 @@ def node_transactions(
     db: Session = Depends(get_session),
 ):
     _case_or_404(db, case_id)
-    if not db.get(CaseAccountNode, node_id):
+    node = db.exec(
+        select(CaseAccountNode).where(
+            CaseAccountNode.id == node_id,
+            CaseAccountNode.case_id == case_id,
+        )
+    ).first()
+    if not node:
         raise HTTPException(status_code=404, detail="Node not found")
     edges = db.exec(
         select(CaseTransferEdge).where(
