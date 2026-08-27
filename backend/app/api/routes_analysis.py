@@ -11,7 +11,7 @@ from app.evidence.evidence_schema import EvidenceBundle
 from app.evidence.evidence_bundle import evidence_bundle_to_json
 from app.evidence.pattern_timeline import build_patterns
 from app.evidence.why_flagged import build_why_flagged
-from app.llm.narrative_generator import generate_narrative
+from app.llm.narrative_generator import generate_narrative_result
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,13 @@ class TransactionPageOut(BaseModel):
 class NarrativeOut(BaseModel):
     statement_id: int
     narrative: str
+    # Retained for clients using the original response field.
     source: str
+    requested_mode: str
+    actual_mode: str
+    model: str | None = None
+    fallback_reason: str | None = None
+    fact_check_passed: bool | None = None
 
 
 class PatternsOut(BaseModel):
@@ -228,6 +234,7 @@ async def get_transactions(
 async def get_narrative(
     statement_id: int,
     use_ai: bool = Query(True),
+    mode: str | None = Query(None, pattern="^(template|ollama|groq|auto)$"),
     db: Session = Depends(get_session),
 ):
     _load_statement_or_404(db, statement_id)
@@ -240,9 +247,14 @@ async def get_narrative(
         raise HTTPException(status_code=404, detail="No evidence bundle found; run confirm first")
 
     bundle = EvidenceBundle(**rec.json_blob)
-    narrative, source = generate_narrative(bundle, use_ai=use_ai)
+    result = generate_narrative_result(bundle, mode=mode, use_ai=use_ai)
     return NarrativeOut(
         statement_id=statement_id,
-        narrative=narrative,
-        source=source,
+        narrative=result.narrative,
+        source=result.actual_mode,
+        requested_mode=result.requested_mode,
+        actual_mode=result.actual_mode,
+        model=result.model,
+        fallback_reason=result.fallback_reason,
+        fact_check_passed=result.fact_check_passed,
     )

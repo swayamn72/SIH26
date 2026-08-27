@@ -366,8 +366,14 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
             from app.categorization.merchant_normalizer import normalize_counterparty_name
             cp_norm = normalize_counterparty_name(cp_raw)
             
+            # A name is an observation, not cross-statement identity evidence.  Keep
+            # same-name counterparties local to their statement; case analysis may
+            # only resolve accounts through exact transfer evidence.
             existing = db.exec(
-                select(Counterparty).where(Counterparty.canonical_name == cp_norm)
+                select(Counterparty).where(
+                    Counterparty.canonical_name == cp_norm,
+                    Counterparty.first_seen_statement_id == statement_id,
+                )
             ).first()
             if existing:
                 txn.counterparty_id = existing.id
@@ -381,8 +387,7 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
                     is_self_transfer=is_self
                 )
                 db.add(cp)
-                db.commit()
-                db.refresh(cp)
+                db.flush()
                 txn.counterparty_id = cp.id
                 counterparty_cache[cp_norm] = cp.id
 
@@ -496,13 +501,30 @@ async def confirm_extraction(statement_id: int, db: Session = Depends(get_sessio
         rule_score=rule_score,
         anomaly_score=anomaly_score,
         decision_reason=decision_reason,
+        supervised_detail={
+            "calibrated_probability": supervised_probability,
+            "model_type": "supervised" if supervised_probability is not None else None,
+            "model_version": supervised_scorer.model_version,
+            "feature_schema": supervised_scorer.feature_names,
+            "contributions_available": False,
+            "fallback_reason": None if supervised_probability is not None else supervised_scorer.unavailable_reason,
+        },
     )
     bundle_json = evidence_bundle_to_json(bundle)
 
-    ev_rec = EvidenceBundleRecord(
-        statement_id=statement_id,
-        json_blob=bundle_json,
-    )
+    # Confirm is a recomputation, not an append-only event: one statement has one
+    # current evidence bundle and one current set of derived cycle records.
+    for old_record in db.exec(
+        select(EvidenceBundleRecord).where(EvidenceBundleRecord.statement_id == statement_id)
+    ).all():
+        db.delete(old_record)
+    for old_cycle in db.exec(
+        select(Cycle).where(Cycle.statement_id == statement_id)
+    ).all():
+        db.delete(old_cycle)
+    db.flush()
+
+    ev_rec = EvidenceBundleRecord(statement_id=statement_id, json_blob=bundle_json)
     db.add(ev_rec)
 
     for cycle_data in cycles:

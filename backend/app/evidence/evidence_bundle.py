@@ -2,7 +2,7 @@ from typing import Any, Optional
 
 from app.evidence.evidence_schema import (
     EvidenceBundle, AccountSummary, FinalDecision, RuleEvidence,
-    FeatureEvidence, CycleEvidence, AnomalyDetail, GuardrailLog,
+    FeatureEvidence, CycleEvidence, AnomalyDetail, GuardrailLog, SupervisedDetail,
 )
 
 
@@ -28,6 +28,7 @@ def assemble_evidence_bundle(
     rule_score: Optional[float] = 0.0,
     anomaly_score: Optional[float] = 0.0,
     decision_reason: Optional[str] = "",
+    supervised_detail: Optional[dict[str, Any]] = None,
 ) -> EvidenceBundle:
     bundle = EvidenceBundle(
         account_summary=AccountSummary(
@@ -84,6 +85,7 @@ def assemble_evidence_bundle(
             top_contributing_features=anomaly_detail.get("top_contributing_features", []) if anomaly_detail else [],
             mad_flagged_features=anomaly_detail.get("mad_flagged_features", {}) if anomaly_detail else {},
         ) if anomaly_detail else None,
+        supervised_detail=SupervisedDetail(**supervised_detail) if supervised_detail else None,
         guardrail_log=GuardrailLog(
             ood_check_passed=ood_check_passed,
             ood_score=ood_score,

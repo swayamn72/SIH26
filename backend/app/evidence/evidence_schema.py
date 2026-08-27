@@ -41,6 +41,10 @@ class AnomalyDetail(BaseModel):
 class SupervisedDetail(BaseModel):
     calibrated_probability: Optional[float] = None
     model_type: Optional[str] = None
+    model_version: Optional[str] = None
+    feature_schema: list[str] = []
+    contributions_available: bool = False
+    fallback_reason: Optional[str] = None
     feature_importance: dict[str, float] = {}
 
 
